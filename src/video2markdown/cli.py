@@ -175,9 +175,24 @@ def main(
     if max_keyframes is not None:
         os.environ["KIMI_MAX_KEYFRAMES"] = str(max_keyframes)
     
-    # Determine output path
+    # Determine output path - maintain same directory structure as input
     if output is None:
-        output = settings.output_dir / f"{video_path.stem}.md"
+        # Get the relative path from current working directory or common parent
+        try:
+            # Try to get relative path from cwd
+            rel_path = video_path.relative_to(Path.cwd())
+        except ValueError:
+            # If not under cwd, use the path as-is
+            rel_path = video_path
+        
+        # Replace 'input' with 'output' in the path, or just use output_dir
+        path_parts = list(rel_path.parts)
+        if len(path_parts) > 1 and path_parts[0] == "testbench" and path_parts[1] == "input":
+            # Replace testbench/input with testbench/output
+            output = settings.output_dir / rel_path.relative_to("testbench/input").parent / f"{video_path.stem}.md"
+        else:
+            # Default behavior: just put in output_dir
+            output = settings.output_dir / f"{video_path.stem}.md"
     
     # Check if output exists
     if skip_existing and output.exists():

@@ -1,5 +1,7 @@
 # Video2Markdown 架构设计
 
+> 📋 详细处理流程请查看 [WORKFLOW.md](./WORKFLOW.md)
+
 ## 1. 系统架构
 
 ```

@@ -63,28 +63,40 @@ for video in "${videos[@]}"; do
     filename=$(basename "$video")
     name="${filename%.*}"
     
-    # 清理文件名中的特殊字符
-    safe_name=$(echo "$name" | tr ' ' '_' | tr -cd '[:alnum:]_-')
-    output_file="$OUTPUT_DIR/${safe_name}.md"
+    # 计算相对于 VIDEOS_DIR 的相对路径
+    rel_path="${video#$VIDEOS_DIR/}"
+    rel_dir=$(dirname "$rel_path")
+    
+    # 如果 rel_dir 是 . 或 /，说明视频在根目录下
+    if [ "$rel_dir" = "." ] || [ "$rel_dir" = "/" ]; then
+        rel_dir=""
+    fi
+    
+    # 构建输出路径，保持与 input 相同的目录结构
+    output_dir="$OUTPUT_DIR/$rel_dir"
+    output_file="$output_dir/${name}.md"
+    
+    # 确保输出目录存在
+    mkdir -p "$output_dir"
     
     # 检查是否已处理过
     if [ -f "$output_file" ]; then
-        echo "⏭️  跳过（已存在）: $filename"
+        echo "⏭️  跳过（已存在）: $rel_path"
         ((skipped++))
         continue
     fi
     
-    echo "▶️  处理 ($((success+failed+skipped+1))/${#videos[@]}): $filename"
+    echo "▶️  处理 ($((success+failed+skipped+1))/${#videos[@]}): $rel_path"
     
     if video2md process "$video" \
         -o "$output_file" \
         --title "$name" \
         --language zh \
         --keyframe-interval 30; then
-        echo "✅ 完成: $filename"
+        echo "✅ 完成: $rel_path"
         ((success++))
     else
-        echo "❌ 失败: $filename"
+        echo "❌ 失败: $rel_path"
         ((failed++))
     fi
     
@@ -96,5 +108,7 @@ echo "✅ 成功: $success"
 echo "⏭️  跳过: $skipped"
 echo "❌ 失败: $failed"
 echo ""
-echo "输出文件:"
-ls -lh "$OUTPUT_DIR"/*.md 2>/dev/null | tail -10
+echo "输出文件（最近10个）:"
+find "$OUTPUT_DIR" -name "*.md" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -10 | cut -d' ' -f2- | while read -r f; do
+    ls -lh "$f"
+done
