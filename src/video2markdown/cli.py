@@ -19,6 +19,7 @@ from video2markdown.video import (
     get_video_info,
     sample_uniform_frames,
 )
+from video2markdown.cli_v3 import process_v3
 from video2markdown.vision import VisionProcessor
 
 
@@ -327,6 +328,7 @@ def info_cmd(video_path: Path):
 
 
 cli.add_command(main, name="process")
+cli.add_command(process_v3, name="process-v3")
 cli.add_command(info_cmd, name="info")
 
 

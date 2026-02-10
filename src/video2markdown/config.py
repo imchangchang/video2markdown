@@ -115,6 +115,24 @@ class Settings(BaseSettings):
         description="Default output directory",
     )
 
+    # Prompt Configuration
+    prompts_dir: Path = Field(
+        default=Path("./prompts"),
+        description="Directory containing prompt template files",
+    )
+    prompt_document_generation: str = Field(
+        default="document_generation.md",
+        description="Filename for document generation prompt",
+    )
+    prompt_image_analysis: str = Field(
+        default="image_analysis.md",
+        description="Filename for image analysis prompt",
+    )
+    prompt_text_cleaning: str = Field(
+        default="text_cleaning.md",
+        description="Filename for text cleaning prompt",
+    )
+
     # Concurrency
     max_workers: int = Field(
         default=4,
@@ -127,6 +145,23 @@ class Settings(BaseSettings):
         ge=10,
         description="API request timeout in seconds",
     )
+
+    def get_prompt(self, prompt_name: str) -> str:
+        """Load prompt content from file.
+        
+        Args:
+            prompt_name: Name of the prompt file (e.g., 'document_generation.md')
+            
+        Returns:
+            Prompt content as string
+            
+        Raises:
+            FileNotFoundError: If prompt file not found
+        """
+        prompt_path = self.prompts_dir / prompt_name
+        if not prompt_path.exists():
+            raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
+        return prompt_path.read_text(encoding="utf-8")
 
     def get_client_kwargs(self) -> dict:
         """Get kwargs for OpenAI client initialization."""
