@@ -12,14 +12,14 @@ from tqdm import tqdm
 from video2markdown import version
 from video2markdown.asr import ASRProcessor, merge_short_segments, save_transcript_to_srt
 from video2markdown.config import settings
-from video2markdown.document import DocumentGenerator, generate_summary
+from video2markdown.document import LegacyDocumentGenerator as DocumentGenerator, generate_summary
 from video2markdown.video import (
     detect_scene_changes,
     extract_keyframes,
     get_video_info,
     sample_uniform_frames,
 )
-from video2markdown.cli_v3 import process_v3
+from video2markdown.processor import process_ai
 from video2markdown.vision import VisionProcessor
 
 
@@ -328,7 +328,7 @@ def info_cmd(video_path: Path):
 
 
 cli.add_command(main, name="process")
-cli.add_command(process_v3, name="process-v3")
+cli.add_command(process_ai, name="process-ai")
 cli.add_command(info_cmd, name="info")
 
 

@@ -1,4 +1,4 @@
-"""V3 Command-line interface for Video2Markdown.
+"""AI-powered document processor for Video2Markdown.
 
 This implements the refined workflow:
 1. Video analysis
@@ -17,11 +17,11 @@ import click
 
 from video2markdown.asr import ASRProcessor, save_transcript_to_srt
 from video2markdown.config import settings
-from video2markdown.document_v3 import DocumentGeneratorV3
-from video2markdown.video import detect_scene_changes, extract_frame, get_video_info
+from video2markdown.document import DocumentGenerator
+from video2markdown.video import detect_scene_changes, extract_best_frame, get_video_info
 
 
-@click.command(name="process-v3")
+@click.command(name="process-ai")
 @click.argument("video_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "-o", "--output",
@@ -50,7 +50,7 @@ from video2markdown.video import detect_scene_changes, extract_frame, get_video_
     is_flag=True,
     help="Keep extracted frames after processing",
 )
-def process_v3(
+def process_ai(
     video_path: Path,
     output: Optional[Path],
     title: Optional[str],
@@ -58,7 +58,7 @@ def process_v3(
     scene_threshold: float,
     keep_frames: bool,
 ):
-    """Process video using V3 workflow (single AI call for text)."""
+    """Process video using AI-powered document generation."""
     
     # Setup paths
     if output is None:
@@ -109,7 +109,7 @@ def process_v3(
         for s in segments
     ]
     
-    generator = DocumentGeneratorV3()
+    generator = DocumentGenerator()
     doc_structure = generator.generate_document_structure(
         segments=segment_dicts,
         title=doc_title,
@@ -140,9 +140,9 @@ def process_v3(
                 frame_path = frames_dir / frame_file
                 
                 try:
-                    extract_frame(video_path, timestamp, frame_path)
+                    actual_path, actual_ts = extract_best_frame(video_path, timestamp, frame_path)
                     frame_mappings[chapter.id] = frame_file
-                    click.echo(f"    ✓ Chapter {chapter.id}: {timestamp:.1f}s")
+                    click.echo(f"    ✓ Chapter {chapter.id}: {actual_ts:.1f}s (searched around {timestamp:.1f}s)")
                 except Exception as e:
                     click.echo(f"    ✗ Chapter {chapter.id}: failed ({e})")
     else:
@@ -174,6 +174,6 @@ def process_v3(
 
 
 # Add to CLI group
-def register_v3_command(cli):
-    """Register V3 command to CLI group."""
-    cli.add_command(process_v3)
+def register_ai_command(cli):
+    """Register AI processor command to CLI group."""
+    cli.add_command(process_ai)

@@ -1,30 +1,351 @@
-"""Document generation module with AI-powered summarization."""
+"""Document generation module for Video2Markdown V3.
 
-import re
-from dataclasses import dataclass
+This module implements the V3 workflow:
+1. AI generates structured document from transcript (single API call)
+2. Smart image extraction based on chapter needs
+3. Markdown assembly with collapsible sections
+"""
+
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from openai import OpenAI
 
-from video2markdown.asr import TranscriptSegment, format_timestamp
 from video2markdown.config import settings
-from video2markdown.vision import ImageDescription
+
+
+@dataclass
+class Chapter:
+    """Represents a document chapter."""
+    id: int
+    title: str
+    start_time: str  # HH:MM:SS format
+    end_time: str
+    summary: str
+    key_points: list[str]
+    cleaned_transcript: str
+    needs_visual: bool = False
+    visual_timestamp: Optional[float] = None
+    visual_reason: Optional[str] = None
+
+
+@dataclass
+class DocumentStructure:
+    """Structured document output from AI."""
+    title: str
+    chapters: list[Chapter] = field(default_factory=list)
+
+
+class DocumentGenerator:
+    """V3 document generator using single AI call for text processing."""
+    
+    def __init__(self):
+        """Initialize document generator."""
+        self.client = OpenAI(**settings.get_client_kwargs())
+        self._load_prompts()
+    
+    def _load_prompts(self):
+        """Load prompt templates from files."""
+        try:
+            self.doc_prompt = settings.get_prompt(settings.prompt_document_generation)
+        except FileNotFoundError as e:
+            print(f"Warning: Could not load prompt file: {e}")
+            print("Using fallback prompt...")
+            self.doc_prompt = self._get_fallback_document_prompt()
+    
+    def _get_fallback_document_prompt(self) -> str:
+        """Fallback prompt if file not found."""
+        return """你是一个专业的视频内容编辑助手。请分析视频转录文本，生成结构化文档。
+
+任务：
+1. 将内容划分为3-6个章节
+2. 每个章节包含：标题、时间范围、摘要、关键要点
+3. 去除语气词，修正识别错误
+4. 将所有内容转换为简体中文
+5. 判断每个章节是否需要配图
+
+输入格式：
+{
+  "title": "视频标题",
+  "language": "zh/en",
+  "duration": 600,
+  "segments": [{"start": 0.0, "end": 5.0, "text": "转录文本"}],
+  "scene_changes": [10.0, 30.0, 60.0]
+}
+
+输出格式（JSON）：
+{
+  "title": "文档标题",
+  "chapters": [
+    {
+      "id": 1,
+      "title": "章节标题",
+      "start_time": "00:00:00",
+      "end_time": "00:05:00",
+      "summary": "摘要",
+      "key_points": ["要点1"],
+      "cleaned_transcript": "清洗后的原文",
+      "needs_visual": true,
+      "visual_timestamp": 30.0,
+      "visual_reason": "说明原因"
+    }
+  ]
+}"""
+    
+    def generate_document_structure(
+        self,
+        segments: list[dict],
+        title: str,
+        duration: float,
+        scene_changes: list[float],
+        language: str = "zh",
+    ) -> DocumentStructure:
+        """Generate structured document from transcript segments.
+        
+        This is the core V3 function that makes a single AI call to:
+        1. Structure content into chapters
+        2. Clean and translate text to Simplified Chinese
+        3. Remove filler words and repetitions
+        4. Determine visual needs for each chapter
+        
+        Args:
+            segments: List of transcript segments with start, end, text
+            title: Video title
+            duration: Video duration in seconds
+            scene_changes: List of scene change timestamps
+            language: Detected language code
+            
+        Returns:
+            Structured document with chapters
+        """
+        # Prepare input
+        input_data = {
+            "title": title,
+            "language": language,
+            "duration": duration,
+            "segments": segments,
+            "scene_changes": scene_changes,
+        }
+        
+        # Call AI
+        try:
+            response = self.client.chat.completions.create(
+                model=settings.model,
+                messages=[
+                    {"role": "system", "content": self.doc_prompt},
+                    {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
+                ],
+                # Note: kimi-k2.5 only supports temperature=1
+                temperature=1,
+            )
+            
+            # Parse JSON response
+            content = response.choices[0].message.content
+            # Extract JSON from response (handle markdown code blocks)
+            json_str = self._extract_json(content)
+            data = json.loads(json_str)
+            
+            # Convert to DocumentStructure
+            return self._parse_document_structure(data)
+            
+        except json.JSONDecodeError as e:
+            print(f"Error parsing AI response: {e}")
+            print(f"Response content: {content[:500]}")
+            raise
+        except Exception as e:
+            print(f"Error generating document: {e}")
+            raise
+    
+    def _extract_json(self, content: str) -> str:
+        """Extract JSON from AI response, handling markdown code blocks."""
+        content = content.strip()
+        
+        # Handle markdown code blocks
+        if "```json" in content:
+            start = content.find("```json") + 7
+            end = content.find("```", start)
+            return content[start:end].strip()
+        elif "```" in content:
+            start = content.find("```") + 3
+            end = content.find("```", start)
+            return content[start:end].strip()
+        
+        return content
+    
+    def _parse_document_structure(self, data: dict) -> DocumentStructure:
+        """Parse JSON data into DocumentStructure."""
+        chapters = []
+        for ch_data in data.get("chapters", []):
+            chapter = Chapter(
+                id=ch_data.get("id", 0),
+                title=ch_data.get("title", ""),
+                start_time=ch_data.get("start_time", "00:00:00"),
+                end_time=ch_data.get("end_time", "00:00:00"),
+                summary=ch_data.get("summary", ""),
+                key_points=ch_data.get("key_points", []),
+                cleaned_transcript=ch_data.get("cleaned_transcript", ""),
+                needs_visual=ch_data.get("needs_visual", False),
+                visual_timestamp=ch_data.get("visual_timestamp"),
+                visual_reason=ch_data.get("visual_reason"),
+            )
+            chapters.append(chapter)
+        
+        return DocumentStructure(
+            title=data.get("title", "Untitled"),
+            chapters=chapters,
+        )
+    
+    def render_markdown(
+        self,
+        doc_structure: DocumentStructure,
+        frames_dir: Optional[Path] = None,
+        frame_mappings: Optional[dict] = None,
+    ) -> str:
+        """Render DocumentStructure to Markdown.
+        
+        Args:
+            doc_structure: Structured document content
+            frames_dir: Directory containing frame images (relative path)
+            frame_mappings: Dict mapping chapter_id to frame filename
+            
+        Returns:
+            Markdown formatted string
+        """
+        lines = []
+        
+        # Title
+        lines.append(f"# {doc_structure.title}")
+        lines.append("")
+        lines.append("*AI整理的视频内容*")
+        lines.append("")
+        
+        # Table of Contents
+        lines.append("## 目录")
+        for chapter in doc_structure.chapters:
+            anchor = f"section-{chapter.id}"
+            lines.append(f"{chapter.id}. [{chapter.title}](#{anchor})")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        
+        # Chapters
+        for chapter in doc_structure.chapters:
+            anchor = f"section-{chapter.id}"
+            lines.append(f"<a id='{anchor}'></a>")
+            lines.append(f"## {chapter.id}. {chapter.title}")
+            lines.append("")
+            lines.append(f"**时间:** [{chapter.start_time} - {chapter.end_time}]")
+            lines.append("")
+            
+            # Summary
+            lines.append("### 内容摘要")
+            lines.append(chapter.summary)
+            lines.append("")
+            
+            # Key Points
+            if chapter.key_points:
+                lines.append("### 关键要点")
+                for point in chapter.key_points:
+                    lines.append(f"- {point}")
+                lines.append("")
+            
+            # Visual (if has frame)
+            if chapter.needs_visual and frame_mappings and chapter.id in frame_mappings:
+                lines.append("### 相关画面")
+                frame_file = frame_mappings[chapter.id]
+                if frames_dir:
+                    frame_path = frames_dir / frame_file
+                else:
+                    frame_path = frame_file
+                lines.append(f"![{chapter.visual_timestamp or ''}]({frame_path})")
+                # Image analysis will be added later in collapsible section
+                lines.append("<details>")
+                lines.append("<summary>🖼️ 画面内容</summary>")
+                lines.append("")
+                lines.append("*图片分析内容将在此处显示*")
+                lines.append("</details>")
+                lines.append("")
+            
+            # Cleaned Transcript (collapsible)
+            if chapter.cleaned_transcript:
+                lines.append("### 原文记录")
+                lines.append("<details>")
+                lines.append("<summary>📄 查看原始转录</summary>")
+                lines.append("")
+                lines.append(chapter.cleaned_transcript)
+                lines.append("</details>")
+                lines.append("")
+            
+            lines.append("---")
+            lines.append("")
+        
+        return "\n".join(lines)
+
+
+# Convenience function
+def generate_document(
+    segments: list[dict],
+    title: str,
+    duration: float,
+    scene_changes: list[float],
+    language: str = "zh",
+    frames_dir: Optional[Path] = None,
+) -> tuple[str, DocumentStructure]:
+    """Convenience function to generate document using V3 workflow.
+    
+    Args:
+        segments: Transcript segments
+        title: Video title
+        duration: Video duration
+        scene_changes: Scene change timestamps
+        language: Language code
+        frames_dir: Directory for frame images
+        
+    Returns:
+        Tuple of (markdown_content, document_structure)
+    """
+    generator = DocumentGenerator()
+    doc_structure = generator.generate_document_structure(
+        segments=segments,
+        title=title,
+        duration=duration,
+        scene_changes=scene_changes,
+        language=language,
+    )
+    markdown = generator.render_markdown(doc_structure, frames_dir)
+    return markdown, doc_structure
+
+
+# ============================================================================
+# Legacy compatibility functions (for old CLI)
+# ============================================================================
+
+from video2markdown.asr import TranscriptSegment, format_timestamp
+
+
+@dataclass
+class ImageDescription:
+    """Legacy image description for compatibility."""
+    timestamp: float
+    description: str
+    frame_path: Optional[Path] = None
 
 
 @dataclass
 class DocumentSection:
-    """A section in the output document."""
+    """A section in the output document (legacy)."""
     start_time: float
     end_time: float
     title: str
-    content: str  # AI总结后的内容
-    original_text: str  # 原始转录文本
-    key_images: list[ImageDescription]  # 关键图片（只在需要时）
+    content: str
+    original_text: str
+    key_images: list[ImageDescription]
 
 
-class DocumentGenerator:
-    """Generate structured Markdown documents with AI summarization."""
+class LegacyDocumentGenerator:
+    """Legacy document generator for compatibility with old CLI."""
     
     def __init__(
         self,
@@ -57,14 +378,23 @@ class DocumentGenerator:
         Returns:
             Path to generated document
         """
-        # Step 1: Use AI to analyze and summarize the transcript
-        structured_content = self._summarize_transcript(transcripts)
+        # Convert to new format
+        segment_dicts = [
+            {"start": s.start, "end": s.end, "text": s.text}
+            for s in transcripts
+        ]
         
-        # Step 2: Align images with sections (only keep relevant ones)
-        sections = self._create_sections(structured_content, transcripts, image_descriptions)
+        # Use new generator
+        new_gen = DocumentGenerator()
+        doc_structure = new_gen.generate_document_structure(
+            segments=segment_dicts,
+            title=self.title,
+            duration=transcripts[-1].end if transcripts else 0,
+            scene_changes=[img.timestamp for img in image_descriptions],
+            language="zh",
+        )
         
-        # Step 3: Generate Markdown
-        markdown = self._generate_markdown(sections)
+        markdown = new_gen.render_markdown(doc_structure)
         
         # Write to file
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,320 +402,46 @@ class DocumentGenerator:
             f.write(markdown)
         
         return output_path
-    
-    def _summarize_transcript(
-        self,
-        transcripts: list[TranscriptSegment],
-    ) -> list[dict]:
-        """Use AI to summarize transcript into structured sections.
-        
-        Returns:
-            List of sections with title, summary, and timestamps
-        """
-        # Prepare transcript text with timestamps
-        transcript_text = ""
-        for seg in transcripts:
-            time_str = format_timestamp(seg.start)
-            transcript_text += f"[{time_str}] {seg.text}\n"
-        
-        # Build prompt for AI summarization
-        system_prompt = (
-            "你是一位专业的内容编辑。请将以下视频转录文字稿整理成结构化的中文文档。\n\n"
-            "要求：\n"
-            "1. 分析文字稿的核心主题和结构\n"
-            "2. 将内容分成3-8个逻辑段落（章节）\n"
-            "3. 每个段落包含：\n"
-            "   - 小标题（概括该部分核心内容）\n"
-            "   - 详细总结（用中文流畅地重述核心观点）\n"
-            "   - 关键时间戳（该段落对应的视频时间，格式[MM:SS]）\n"
-            "4. 保持专业性和可读性\n"
-            "5. 输出必须是简体中文\n\n"
-            "输出格式（JSON）：\n"
-            "[\n"
-            "  {\n"
-            '    "title": "章节标题",\n'
-            '    "summary": "详细总结内容...",\n'
-            '    "start_time": "00:00",\n'
-            '    "end_time": "01:30",\n'
-            '    "key_points": ["要点1", "要点2"]\n'
-            "  },\n"
-            "  ...\n"
-            "]"
-        )
-        
-        # Truncate if too long (keep last ~8000 tokens)
-        max_chars = 24000
-        if len(transcript_text) > max_chars:
-            transcript_text = "..." + transcript_text[-max_chars:]
-        
-        # Call AI for summarization
-        kwargs = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"视频标题：{self.title}\n\n转录文字稿：\n{transcript_text}"},
-            ],
-        }
-        
-        if "k2.5" not in self.model:
-            kwargs["temperature"] = 0.3
-        
-        completion = self.client.chat.completions.create(**kwargs)
-        content = completion.choices[0].message.content
-        
-        # Parse JSON response
-        return self._parse_summary_json(content, transcripts)
-    
-    def _parse_summary_json(
-        self,
-        content: str,
-        transcripts: list[TranscriptSegment],
-    ) -> list[dict]:
-        """Parse AI summary response into structured data."""
-        import json
-        import re
-        
-        try:
-            # Extract JSON from response
-            json_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', content, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(1))
-            else:
-                # Try to find JSON array directly
-                json_match = re.search(r'\[\s*\{.*\}\s*\]', content, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group(0))
-                else:
-                    data = []
-            
-            # Validate and normalize
-            sections = []
-            for item in data:
-                section = {
-                    "title": item.get("title", "未命名章节"),
-                    "summary": item.get("summary", ""),
-                    "start_time": item.get("start_time", "00:00"),
-                    "end_time": item.get("end_time", "00:00"),
-                    "key_points": item.get("key_points", []),
-                }
-                sections.append(section)
-            
-            return sections if sections else self._fallback_sections(transcripts)
-            
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"Warning: Failed to parse AI summary: {e}")
-            return self._fallback_sections(transcripts)
-    
-    def _fallback_sections(
-        self,
-        transcripts: list[TranscriptSegment],
-    ) -> list[dict]:
-        """Fallback: create simple sections from transcripts."""
-        sections = []
-        chunk_size = max(1, len(transcripts) // 5)  # ~5 sections
-        
-        for i in range(0, len(transcripts), chunk_size):
-            chunk = transcripts[i:i+chunk_size]
-            if not chunk:
-                continue
-            
-            start_time = format_timestamp(chunk[0].start)
-            end_time = format_timestamp(chunk[-1].end)
-            text = " ".join([seg.text for seg in chunk])
-            
-            # Extract first sentence as title
-            title = text[:30] + "..." if len(text) > 30 else text
-            
-            sections.append({
-                "title": title,
-                "summary": text,
-                "start_time": start_time,
-                "end_time": end_time,
-                "key_points": [],
-            })
-        
-        return sections
-    
-    def _create_sections(
-        self,
-        structured_content: list[dict],
-        transcripts: list[TranscriptSegment],
-        image_descriptions: list[ImageDescription],
-    ) -> list[DocumentSection]:
-        """Create document sections from structured content."""
-        sections = []
-        
-        for item in structured_content:
-            # Parse timestamps
-            start_sec = self._parse_time_to_seconds(item.get("start_time", "00:00"))
-            end_sec = self._parse_time_to_seconds(item.get("end_time", "00:00"))
-            
-            # Find original text for this time range
-            original_text = " ".join([
-                seg.text for seg in transcripts
-                if start_sec <= seg.start <= end_sec or start_sec <= seg.end <= end_sec
-            ])
-            
-            # Find relevant images (only keep most relevant ones)
-            key_images = [
-                img for img in image_descriptions
-                if start_sec <= img.timestamp <= end_sec and img.is_relevant
-            ][:2]  # Max 2 images per section
-            
-            sections.append(DocumentSection(
-                start_time=start_sec,
-                end_time=end_sec,
-                title=item.get("title", "未命名章节"),
-                content=item.get("summary", ""),
-                original_text=original_text,
-                key_images=key_images,
-            ))
-        
-        return sections
-    
-    def _parse_time_to_seconds(self, time_str: str) -> float:
-        """Parse time string (MM:SS or HH:MM:SS) to seconds."""
-        parts = time_str.split(":")
-        if len(parts) == 2:
-            return int(parts[0]) * 60 + float(parts[1])
-        elif len(parts) == 3:
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-        return 0.0
-    
-    def _generate_markdown(self, sections: list[DocumentSection]) -> str:
-        """Generate Markdown content from sections."""
-        lines = []
-        
-        # Title
-        lines.append(f"# {self.title}")
-        lines.append("")
-        lines.append("*AI整理的视频内容*")
-        lines.append("")
-        
-        # Table of Contents
-        if sections:
-            lines.append("## 目录")
-            lines.append("")
-            for i, section in enumerate(sections, 1):
-                lines.append(f"{i}. [{section.title}](#section-{i})")
-            lines.append("")
-            lines.append("---")
-            lines.append("")
-        
-        # Sections
-        for i, section in enumerate(sections, 1):
-            lines.append(f"<a id='section-{i}'></a>")
-            lines.append(f"## {i}. {section.title}")
-            lines.append("")
-            
-            # Time reference
-            start_fmt = format_timestamp(section.start_time)
-            end_fmt = format_timestamp(section.end_time)
-            lines.append(f"**时间：** [{start_fmt} - {end_fmt}]")
-            lines.append("")
-            
-            # Main content (AI summary)
-            lines.append(section.content)
-            lines.append("")
-            
-            # Key points if available
-            if hasattr(section, 'key_points') and section.key_points:
-                lines.append("**要点：**")
-                for point in section.key_points:
-                    lines.append(f"- {point}")
-                lines.append("")
-            
-            # Key images (only if relevant)
-            if section.key_images:
-                lines.append("**相关画面：**")
-                lines.append("")
-                for img in section.key_images:
-                    rel_path = self._get_image_path(img.image_path)
-                    lines.append(f"![{format_timestamp(img.timestamp)}]({rel_path})")
-                    if img.description:
-                        lines.append(f"*{img.description[:60]}...*")
-                    lines.append("")
-            
-            # Collapsible original transcript
-            if section.original_text:
-                lines.append("<details>")
-                lines.append("<summary>原始转录文字</summary>")
-                lines.append("")
-                lines.append(f"> {section.original_text}")
-                lines.append("")
-                lines.append("</details>")
-                lines.append("")
-            
-            lines.append("---")
-            lines.append("")
-        
-        return "\n".join(lines)
-    
-    def _get_image_path(self, image_path: Path) -> str:
-        """Get image path for Markdown reference."""
-        parent = image_path.parent
-        if parent.name.endswith("_frames"):
-            return f"{parent.name}/{image_path.name}"
-        return str(image_path.name)
 
 
 def generate_summary(
     transcripts: list[TranscriptSegment],
     image_descriptions: list[ImageDescription],
-    output_path: Optional[Path] = None,
-) -> str:
-    """Generate a brief summary of the video content.
+    output_path: Path,
+) -> Path:
+    """Generate summary document (legacy compatibility).
     
     Args:
         transcripts: List of transcript segments
         image_descriptions: List of image descriptions
-        output_path: Optional path to save summary
+        output_path: Output file path
         
     Returns:
-        Summary text
+        Path to generated summary
     """
-    full_text = " ".join([t.text for t in transcripts])
+    # Create simple summary
+    total_duration = transcripts[-1].end if transcripts else 0
     
-    # Use AI to generate summary
-    client = OpenAI(**settings.get_client_kwargs())
-    
-    prompt = (
-        "请用中文总结以下视频内容的要点：\n\n"
-        f"{full_text[:3000]}\n\n"
-        "要求：\n"
-        "1. 列出3-5个核心要点\n"
-        "2. 输出简体中文\n"
-        "3. 简洁明了"
-    )
-    
-    kwargs = {
-        "model": settings.model,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    if "k2.5" not in settings.model:
-        kwargs["temperature"] = 0.3
-    
-    completion = client.chat.completions.create(**kwargs)
-    summary = completion.choices[0].message.content
-    
-    # Create summary document
     lines = [
-        "# 视频摘要",
-        "",
-        f"**时长：** {format_timestamp(transcripts[-1].end if transcripts else 0)}",
-        f"**关键画面：** {len([img for img in image_descriptions if img.is_relevant])} 张",
-        "",
-        "## 内容要点",
-        "",
-        summary,
-        "",
+        f"# 视频摘要\n",
+        f"\n",
+        f"**时长：** {format_timestamp(total_duration)}\n",
+        f"**关键画面：** {len(image_descriptions)} 张\n",
+        f"\n",
+        f"## 内容要点\n",
+        f"\n",
     ]
     
-    summary_text = "\n".join(lines)
+    # Add some bullet points from transcript
+    for i, seg in enumerate(transcripts[:5]):
+        lines.append(f"{i+1}. {seg.text[:50]}...\n")
     
-    if output_path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(summary_text)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
     
-    return summary_text
+    return output_path
+
+
+# Alias for compatibility
+DocumentGeneratorLegacy = LegacyDocumentGenerator

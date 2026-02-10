@@ -121,6 +121,149 @@ def extract_frame(video_path: Path, timestamp: float, output_path: Path) -> Path
     return output_path
 
 
+def is_black_frame(image_path: Path, threshold: float = 0.95) -> bool:
+    """Check if image is mostly black (transition/scene change).
+    
+    Args:
+        image_path: Path to image
+        threshold: Ratio of dark pixels to consider as black frame
+        
+    Returns:
+        True if image is mostly black
+    """
+    img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        return True
+    
+    # Calculate mean brightness
+    mean_brightness = np.mean(img)
+    
+    # If mean brightness is very low, it's likely a black frame
+    if mean_brightness < 10:
+        return True
+    
+    # Count very dark pixels (0-20)
+    dark_pixels = np.sum(img < 20)
+    total_pixels = img.size
+    dark_ratio = dark_pixels / total_pixels
+    
+    return dark_ratio > threshold
+
+
+def score_frame_quality(image_path: Path) -> float:
+    """Score frame quality (higher is better).
+    
+    Combines:
+    - Sharpness (Laplacian variance)
+    - Brightness (avoid too dark or too bright)
+    - Content (avoid uniform colors)
+    
+    Args:
+        image_path: Path to image
+        
+    Returns:
+        Quality score (0-100)
+    """
+    img = cv2.imread(str(image_path))
+    if img is None:
+        return 0.0
+    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Sharpness
+    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    sharpness_score = min(laplacian_var / 500, 50)  # Max 50 points
+    
+    # Brightness (ideal: 50-200)
+    mean_brightness = np.mean(gray)
+    if mean_brightness < 30 or mean_brightness > 225:
+        brightness_score = 0
+    else:
+        brightness_score = 25
+    
+    # Content variety (standard deviation)
+    std_dev = np.std(gray)
+    content_score = min(std_dev / 2, 25)  # Max 25 points
+    
+    return sharpness_score + brightness_score + content_score
+
+
+def extract_best_frame(
+    video_path: Path,
+    target_timestamp: float,
+    output_path: Path,
+    search_window: float = 2.0,
+    step: float = 0.5,
+) -> tuple[Path, float]:
+    """Extract best frame around target timestamp.
+    
+    Searches in a window around the target timestamp to find
+    the clearest, non-black frame.
+    
+    Args:
+        video_path: Path to video file
+        target_timestamp: Target time in seconds
+        output_path: Output image path
+        search_window: Time window to search (seconds on each side)
+        step: Time step between candidate frames
+        
+    Returns:
+        Tuple of (output_path, actual_timestamp)
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Generate candidate timestamps
+    candidates = []
+    current = max(0, target_timestamp - search_window)
+    end = target_timestamp + search_window
+    
+    while current <= end:
+        candidates.append(current)
+        current += step
+    
+    # Evaluate each candidate
+    best_frame = None
+    best_score = -1
+    best_timestamp = target_timestamp
+    
+    temp_dir = settings.temp_dir / "frame_selection"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    
+    for i, ts in enumerate(candidates):
+        temp_path = temp_dir / f"candidate_{i}_{ts:.2f}.jpg"
+        
+        try:
+            extract_frame(video_path, ts, temp_path)
+            
+            # Skip black frames
+            if is_black_frame(temp_path):
+                continue
+            
+            # Score quality
+            score = score_frame_quality(temp_path)
+            
+            if score > best_score:
+                best_score = score
+                best_frame = temp_path
+                best_timestamp = ts
+                
+        except Exception:
+            continue
+    
+    # Copy best frame to output
+    if best_frame and best_frame.exists():
+        import shutil
+        shutil.copy(best_frame, output_path)
+        # Cleanup temp files
+        for f in temp_dir.glob("candidate_*.jpg"):
+            f.unlink(missing_ok=True)
+        return output_path, best_timestamp
+    else:
+        # Fallback: extract at exact timestamp
+        extract_frame(video_path, target_timestamp, output_path)
+        return output_path, target_timestamp
+
+
 def is_blurry(image_path: Path, threshold: Optional[float] = None) -> bool:
     """Check if image is blurry using Laplacian variance.
     
