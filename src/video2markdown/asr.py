@@ -254,7 +254,14 @@ class LocalWhisperProcessor:
         if self._processor_type == "whisper_cpp":
             self._load_whisper_cpp()
         else:
-            self._load_faster_whisper()
+            # Check if whisper-cpp CLI is available
+            try:
+                exe_path = self._find_whisper_cpp()
+                print(f"Using whisper.cpp CLI: {exe_path}")
+                self._processor_type = "whisper_cpp"
+                self.model = "whisper_cpp_cli"
+            except FileNotFoundError:
+                self._load_faster_whisper()
     
     def _load_whisper_cpp(self):
         """Load whisper.cpp model."""
@@ -368,6 +375,11 @@ class LocalWhisperProcessor:
         # Determine output path (whisper.cpp adds .json extension)
         output_json = audio_path.parent / f"{audio_path.stem}.wav.json"
         
+        # Get model path (use default if not set)
+        model_path = self.model_path or settings.whisper_local_model
+        if not model_path or not Path(model_path).exists():
+            raise FileNotFoundError(f"Whisper model not found: {model_path}. Please download a model from https://huggingface.co/ggerganov/whisper.cpp")
+        
         try:
             # Find whisper-cpp executable
             whisper_cpp_exe = self._find_whisper_cpp()
@@ -375,7 +387,7 @@ class LocalWhisperProcessor:
             # Run whisper.cpp
             cmd = [
                 str(whisper_cpp_exe),
-                "-m", str(self.model_path),
+                "-m", str(model_path),
                 "-f", str(audio_path),
                 "-oj",  # Output JSON
                 "-of", str(audio_path),  # Output prefix (whisper.cpp adds extension)
