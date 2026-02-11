@@ -4,83 +4,83 @@
 
 ## 1. 系统架构
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Video2Markdown                          │
-├─────────────────────────────────────────────────────────────────┤
-│  CLI Layer (cli.py)                                             │
-│  ├── 命令行参数解析                                              │
-│  ├── 处理流程编排                                                │
-│  └── 进度显示和错误处理                                          │
-├─────────────────────────────────────────────────────────────────┤
-│  Core Processing Layer                                          │
-│  ├─────────────┬─────────────┬─────────────┬──────────────────┐ │
-│  │  Video      │  Audio      │  ASR        │  Vision          │ │
-│  │  (video.py) │  (audio.py) │  (asr.py)   │  (vision.py)     │ │
-│  ├─────────────┼─────────────┼─────────────┼──────────────────┤ │
-│  │ • 视频信息   │ • 音频提取   │ • Whisper   │ • 关键帧提取      │ │
-│  │ • 关键帧    │ • 格式转换   │ • 繁简转换   │ • 图片筛选        │ │
-│  │   提取      │             │ • 分段处理   │ • AI 图像分析     │ │
-│  └─────────────┴─────────────┴─────────────┴──────────────────┘ │
-├─────────────────────────────────────────────────────────────────┤
-│  Document Layer (document.py)                                   │
-│  ├── 章节划分                                                    │
-│  ├── 内容摘要生成                                                │
-│  └── Markdown 渲染                                               │
-├─────────────────────────────────────────────────────────────────┤
-│  Config Layer (config.py)                                       │
-│  ├── 环境变量管理                                                │
-│  └── 配置验证                                                    │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph CLI["CLI Layer (cli.py)"]
+        CLI1["命令行参数解析"]
+        CLI2["处理流程编排"]
+        CLI3["进度显示和错误处理"]
+    end
+
+    subgraph CORE["Core Processing Layer"]
+        subgraph VIDEO["Video (video.py)"]
+            V1["视频信息"]
+            V2["关键帧提取"]
+        end
+        
+        subgraph AUDIO["Audio (audio.py)"]
+            A1["音频提取"]
+            A2["格式转换"]
+        end
+        
+        subgraph ASR["ASR (asr.py)"]
+            ASR1["Whisper"]
+            ASR2["繁简转换"]
+            ASR3["分段处理"]
+        end
+        
+        subgraph VISION["Vision (vision.py)"]
+            VIS1["关键帧提取"]
+            VIS2["图片筛选"]
+            VIS3["AI 图像分析"]
+        end
+    end
+
+    subgraph DOC["Document Layer (document.py)"]
+        D1["章节划分"]
+        D2["内容摘要生成"]
+        D3["Markdown 渲染"]
+    end
+
+    subgraph CONFIG["Config Layer (config.py)"]
+        C1["环境变量管理"]
+        C2["配置验证"]
+    end
+
+    CLI --> CORE
+    CORE --> DOC
+    CONFIG --> CLI
+    CONFIG --> CORE
+    CONFIG --> DOC
 ```
 
 ## 2. 处理流程
 
-```
-输入视频
-    │
-    ▼
-┌─────────────┐
-│ 1. 视频分析  │──► 获取时长、分辨率、FPS
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│ 2. 音频提取  │──► 提取为 WAV 格式
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│ 3. 语音识别  │──► Whisper 转录 ──► OpenCC 繁简转换
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│ 4. 关键帧   │──► 场景检测 + 均匀采样
-│    提取     │
-└─────────────┘
-    │
-    ▼
-┌─────────────┐     ┌─────────────────────────────┐
-│ 5. 图片筛选  │────►│ • 颜色分析（PPT/白板检测）    │
-│             │     │ • 文字检测（边缘密度）        │
-│             │     │ • 转录上下文分析             │
-└─────────────┘     └─────────────────────────────┘
-    │
-    ▼ (筛选后)
-┌─────────────┐
-│ 6. AI 图像   │──► Kimi Vision API 分析
-│    分析     │
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│ 7. AI 文档   │──► 章节划分 + 摘要生成
-│    生成     │
-└─────────────┘
-    │
-    ▼
-输出 Markdown
+```mermaid
+flowchart TD
+    A["输入视频"] --> B["1. 视频分析"]
+    B --> B1["获取时长、分辨率、FPS"]
+    B --> C["2. 音频提取"]
+    C --> C1["提取为 WAV 格式"]
+    C --> D["3. 语音识别"]
+    D --> D1["Whisper 转录"]
+    D1 --> D2["OpenCC 繁简转换"]
+    D --> E["4. 关键帧提取"]
+    E --> E1["场景检测 + 均匀采样"]
+    E --> F["5. 图片筛选"]
+    
+    subgraph FILTER["筛选策略"]
+        F1["颜色分析 PPT/白板检测"]
+        F2["文字检测 边缘密度"]
+        F3["转录上下文分析"]
+    end
+    
+    F --> FILTER
+    F --> G["6. AI 图像分析"]
+    G --> G1["Kimi Vision API 分析"]
+    G --> H["7. AI 文档生成"]
+    H --> H1["章节划分 + 摘要生成"]
+    H --> I["输出 Markdown"]
 ```
 
 ## 3. 模块详细设计
@@ -145,37 +145,39 @@ class DocumentGenerator:
 
 ### 4.1 转录数据
 
-```
-Whisper JSON Output
-    │
-    ▼
-TranscriptSegment[]
-    ├── start_time: float
-    ├── end_time: float
-    └── text: str (简体中文)
-```
+**数据结构：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `start_time` | float | 开始时间（秒） |
+| `end_time` | float | 结束时间（秒） |
+| `text` | str | 文本内容（简体中文） |
+
+**流程：** `Whisper JSON Output` → `TranscriptSegment[]`
 
 ### 4.2 关键帧数据
 
-```
-Keyframe
-    ├── frame_path: Path
-    ├── timestamp: float
-    ├── image_type: str  # ppt, whiteboard, speaker, etc.
-    └── description: str  # AI 生成描述
-```
+**数据结构：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `frame_path` | Path | 帧文件路径 |
+| `timestamp` | float | 时间戳（秒） |
+| `image_type` | str | 图片类型：ppt, whiteboard, speaker 等 |
+| `description` | str | AI 生成的描述 |
 
 ### 4.3 章节数据
 
-```
-Chapter
-    ├── title: str
-    ├── start_time: float
-    ├── end_time: float
-    ├── summary: str      # AI 生成摘要
-    ├── transcript: str   # 原始转录
-    └── images: list[Keyframe]  # 相关图片
-```
+**数据结构：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `title` | str | 章节标题 |
+| `start_time` | float | 开始时间（秒） |
+| `end_time` | float | 结束时间（秒） |
+| `summary` | str | AI 生成的摘要 |
+| `transcript` | str | 原始转录文本 |
+| `images` | list[Keyframe] | 相关图片列表 |
 
 ## 5. 关键设计决策
 
@@ -245,18 +247,22 @@ class WordRenderer(BaseRenderer): ...  # 新增
 
 ## 7. 配置体系
 
-```
-配置优先级（高到低）：
+配置优先级（从高到低）：
 
-1. 命令行参数
-   └── video2md process --keyframe-interval 60
-   
-2. 环境变量
-   └── export KIMI_KEYFRAME_INTERVAL=60
-   
-3. .env 文件
-   └── KIMI_KEYFRAME_INTERVAL=60
-   
-4. 默认值
-   └── 代码中定义的默认值
-```
+1. **命令行参数**
+   ```bash
+   video2md process --keyframe-interval 60
+   ```
+
+2. **环境变量**
+   ```bash
+   export KIMI_KEYFRAME_INTERVAL=60
+   ```
+
+3. **.env 文件**
+   ```
+   KIMI_KEYFRAME_INTERVAL=60
+   ```
+
+4. **默认值**
+   - 代码中定义的默认值

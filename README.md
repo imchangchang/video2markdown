@@ -32,9 +32,15 @@
 - 性能分析和时间预估
 - 优化建议
 
-```
-视频 → 视频分析 → 音频转录(Whisper) → 关键帧提取 → 智能图片筛选 → 
-AI图像分析 → AI文档生成 → Markdown输出
+```mermaid
+flowchart LR
+    V[视频] --> VA[视频分析]
+    VA --> ASR["音频转录<br>(Whisper)"]
+    ASR --> KF[关键帧提取]
+    KF --> FS[智能图片筛选]
+    FS --> VISION[AI图像分析]
+    VISION --> DOC[AI文档生成]
+    DOC --> OUT[Markdown输出]
 ```
 
 ## 快速开始
