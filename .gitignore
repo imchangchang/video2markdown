@@ -130,3 +130,4 @@ desktop.ini
 *.log
 logs/
 log/
+*.tar.gz
