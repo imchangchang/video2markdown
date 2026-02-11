@@ -131,3 +131,10 @@ desktop.ini
 logs/
 log/
 *.tar.gz
+
+# Vibe Coding (完全忽略，不纳入版本控制)
+.ai-context/
+.skill-set
+.vibe/
+AGENTS.md
+
