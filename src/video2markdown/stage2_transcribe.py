@@ -137,12 +137,9 @@ def _print_usage_info(response) -> None:
     from video2markdown.stats import get_stats
     get_stats().add(prompt_tokens, completion_tokens)
     
-    # Kimi K2.5 价格 (2025-02)
-    INPUT_PRICE_PER_1M = 4.8   # ¥/百万 tokens
-    OUTPUT_PRICE_PER_1M = 20.0  # ¥/百万 tokens
-    
-    input_cost = (prompt_tokens / 1_000_000) * INPUT_PRICE_PER_1M
-    output_cost = (completion_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+    # 从配置获取价格
+    input_cost = (prompt_tokens / 1_000_000) * settings.price_input_per_1m
+    output_cost = (completion_tokens / 1_000_000) * settings.price_output_per_1m
     total_cost = input_cost + output_cost
     
     print(f"    📊 Token 用量: {prompt_tokens:,} 输入 / {completion_tokens:,} 输出")

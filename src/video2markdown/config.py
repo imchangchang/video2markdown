@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     temp_dir: Path = Field(default=PROJECT_ROOT / "test_outputs" / "temp")
     prompts_dir: Path = Field(default=PROJECT_ROOT / "prompts")
 
+    # API 定价（单位：元/百万 tokens）
+    price_input_per_1m: float = Field(default=4.8, description="输入 token 价格（元/百万）")
+    price_output_per_1m: float = Field(default=20.0, description="输出 token 价格（元/百万）")
+
     def get_client_kwargs(self) -> dict:
         """获取 OpenAI 客户端参数."""
         return {

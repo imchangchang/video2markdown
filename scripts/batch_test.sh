@@ -44,6 +44,17 @@ OUTPUT_DIR="test_outputs/results/batch_test_$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="$OUTPUT_DIR/batch_test.log"
 SUMMARY_FILE="$OUTPUT_DIR/summary.md"
 
+# 加载 .env 文件中的价格配置（如果存在）
+if [ -f ".env" ]; then
+    # 读取价格配置，使用默认值
+    PRICE_INPUT_PER_1M=$(grep "^KIMI_PRICE_INPUT_PER_1M=" .env 2>/dev/null | cut -d= -f2 || echo "4.8")
+    PRICE_OUTPUT_PER_1M=$(grep "^KIMI_PRICE_OUTPUT_PER_1M=" .env 2>/dev/null | cut -d= -f2 || echo "20.0")
+else
+    # 使用默认价格
+    PRICE_INPUT_PER_1M="4.8"
+    PRICE_OUTPUT_PER_1M="20.0"
+fi
+
 # 创建输出目录
 mkdir -p "$OUTPUT_DIR"
 
@@ -283,7 +294,7 @@ done
 # 计算总费用
 total_tokens=$((total_input_tokens + total_output_tokens))
 if command -v python3 &> /dev/null; then
-    total_cost=$(python3 -c "print(f'{( $total_input_tokens * 4.8 / 1000000 + $total_output_tokens * 20 / 1000000 ):.4f}')")
+    total_cost=$(python3 -c "print(f'{( $total_input_tokens * $PRICE_INPUT_PER_1M / 1000000 + $total_output_tokens * $PRICE_OUTPUT_PER_1M / 1000000 ):.4f}')")
 else
     total_cost="N/A"
 fi
@@ -292,9 +303,9 @@ echo "| **总计** | **$total_api_calls** | **$total_input_tokens / $total_outpu
 
 cat >> "$SUMMARY_FILE" << EOF
 
-> 价格标准：Kimi K2.5 (2025-02)
-> - 输入: ¥4.8 / 百万 tokens
-> - 输出: ¥20 / 百万 tokens
+> 价格标准（从 .env 读取）
+> - 输入: ¥$PRICE_INPUT_PER_1M / 百万 tokens
+> - 输出: ¥$PRICE_OUTPUT_PER_1M / 百万 tokens
 
 ## 生成文件
 
