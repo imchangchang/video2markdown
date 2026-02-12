@@ -263,7 +263,8 @@ def process(video_path: Path, output: Path, language: str):
     
     # Stage 5
     click.echo("=" * 50)
-    frames_dir = output_dir / f"{video_path.stem}_frames"
+    temp_dir = output_dir / "temp"
+    frames_dir = temp_dir / "images"
     descriptions = analyze_images(video_path, keyframes, transcript, frames_dir)
     click.echo()
     

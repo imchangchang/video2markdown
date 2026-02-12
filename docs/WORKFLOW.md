@@ -85,7 +85,7 @@ flowchart TD
         OF1["• {title}/{title}.md - 最终图文文档"]
         OF2["• {title}/{title}_word.md - AI优化文稿M1</br>(可直接阅读替代视频)"]
         OF3["• {title}/{title}.srt - 原始转录字幕</br>(参考用)"]
-        OF4["• {title}/{title}_frames/ - 关键配图M2 + 说明M3"]
+        OF4["• {title}/images/ - 关键配图M2 + 说明M3"]
     end
 
 ```

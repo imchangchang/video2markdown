@@ -8,7 +8,7 @@
     ├── {title}.md           # 最终文档
     ├── {title}_word.md      # 视频文字稿
     ├── {title}.srt          # 字幕文件
-    └── {title}_frames/      # 关键配图
+    └── images/              # 关键配图
         ├── frame_0001_15.5s.jpg
         ├── frame_0001_15.5s.txt  # 配图说明
         └── ...
@@ -44,11 +44,12 @@ def render_markdown(
     doc_dir = output_dir / document.title
     doc_dir.mkdir(parents=True, exist_ok=True)
     
-    frames_dir = doc_dir / f"{document.title}_frames"
+    # 使用统一的 images/ 目录存放配图，避免特殊字符路径问题
+    frames_dir = doc_dir / "images"
     frames_dir.mkdir(exist_ok=True)
     
     # 1. 渲染主文档
-    main_doc = _render_main_document(document, descriptions, frames_dir)
+    main_doc = _render_main_document(document, descriptions)
     main_path = doc_dir / f"{document.title}.md"
     main_path.write_text(main_doc, encoding="utf-8")
     print(f"  ✓ 主文档: {main_path}")
@@ -72,7 +73,6 @@ def render_markdown(
 def _render_main_document(
     document: Document,
     descriptions: ImageDescriptions,
-    frames_dir: Path,
 ) -> str:
     """渲染主 Markdown 文档."""
     lines = []
@@ -119,7 +119,8 @@ def _render_main_document(
             if desc:
                 frame_file = desc.image_path.name
                 lines.append("### 相关画面")
-                lines.append(f"![{ch.visual_timestamp}s]({document.title}_frames/{frame_file})")
+                # 使用相对路径 images/ 目录，避免特殊字符和空格问题
+                lines.append(f"![{ch.visual_timestamp}s](images/{frame_file})")
                 lines.append("")
                 lines.append("**画面内容:**")
                 lines.append(f"> {desc.description}")
