@@ -134,6 +134,31 @@ def _load_prompt_with_meta(template_path: Path):
     return system_msg, user_template, api_params
 
 
+def _print_usage_info(response) -> None:
+    """打印 API 用量和价格信息."""
+    if not hasattr(response, 'usage') or response.usage is None:
+        return
+    
+    usage = response.usage
+    prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+    completion_tokens = getattr(usage, 'completion_tokens', 0)
+    total_tokens = getattr(usage, 'total_tokens', 0)
+    
+    if total_tokens == 0:
+        return
+    
+    # Kimi K2.5 价格 (2025-02)
+    INPUT_PRICE_PER_1M = 4.8   # ¥/百万 tokens
+    OUTPUT_PRICE_PER_1M = 20.0  # ¥/百万 tokens
+    
+    input_cost = (prompt_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+    output_cost = (completion_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+    total_cost = input_cost + output_cost
+    
+    print(f"      📊 Token 用量: {prompt_tokens:,} 输入 / {completion_tokens:,} 输出")
+    print(f"      💰 预估费用: ¥{total_cost:.4f}")
+
+
 def _analyze_single_image(
     client: OpenAI,
     image_path: Path,
@@ -171,6 +196,9 @@ def _analyze_single_image(
     )
     
     content = response.choices[0].message.content
+    
+    # 打印 Token 用量
+    _print_usage_info(response)
     
     # 解析响应 (简单处理)
     description = content.strip()
