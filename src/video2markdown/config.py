@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     vision_model: str = Field(default="kimi-k2.5")
 
     # Whisper 配置
+    asr_provider: str = Field(default="local", description="ASR 提供商: local 或 openai")
     whisper_model: str = Field(default="base", description="Whisper 模型名称 (tiny/base/small/medium) 或完整路径")
     whisper_language: str = Field(default="zh")
 
@@ -60,6 +61,7 @@ class Settings(BaseSettings):
     # 路径
     output_dir: Path = Field(default=PROJECT_ROOT / "testbench" / "output")
     temp_dir: Path = Field(default=PROJECT_ROOT / "testbench" / "output" / "temp")
+    prompts_dir: Path = Field(default=PROJECT_ROOT / "prompts")
 
     def get_client_kwargs(self) -> dict:
         """获取 OpenAI 客户端参数."""
@@ -68,7 +70,7 @@ class Settings(BaseSettings):
             "base_url": self.base_url,
         }
 
-    def resolve_whisper_model(self) -> Optional[Path]:
+    def resolve_whisper_model_path(self) -> Optional[Path]:
         """解析 Whisper 模型路径.
         
         搜索顺序:
