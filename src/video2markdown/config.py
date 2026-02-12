@@ -73,7 +73,11 @@ class Settings(BaseSettings):
     def resolve_whisper_cli(self) -> Optional[Path]:
         """查找 whisper-cli 可执行文件."""
         candidates = [
-            # CMake 构建版本（推荐）
+            # 项目内置版本（优先）- 使用 wrapper 脚本处理动态库
+            PROJECT_ROOT / "tools" / "whisper-cpp" / "whisper-cli-wrapper",
+            # 项目内置版本 - 直接二进制（需手动设置 LD_LIBRARY_PATH）
+            PROJECT_ROOT / "tools" / "whisper-cpp" / "whisper-cli",
+            # 向后兼容：CMake 构建版本
             PROJECT_ROOT / "whisper.cpp" / "build" / "bin" / "whisper-cli",
             # 项目根目录
             PROJECT_ROOT / "whisper-cli",

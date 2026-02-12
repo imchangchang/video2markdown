@@ -53,7 +53,7 @@ def stage2(video_path: Path, output: Path, language: str):
     from video2markdown.stage2_transcribe import transcribe_video
     
     # 检查模型
-    model_path = settings.resolve_whisper_model()
+    model_path = settings.resolve_whisper_model_path()
     if not model_path:
         click.echo("错误: 找不到 Whisper 模型", err=True)
         click.echo(f"请检查 KIMI_WHISPER_MODEL 配置或放置模型到 whisper.cpp/models/", err=True)
@@ -119,7 +119,7 @@ def stage4(video_path: Path, output: Path, language: str):
     from video2markdown.stage3_keyframes import extract_candidate_frames
     from video2markdown.stage4_filter import filter_keyframes
     
-    model_path = settings.resolve_whisper_model()
+    model_path = settings.resolve_whisper_model_path()
     if not model_path:
         click.echo("错误: 找不到 Whisper 模型", err=True)
         sys.exit(1)
@@ -160,7 +160,7 @@ def stage5(video_path: Path, output: Path, language: str):
     from video2markdown.stage4_filter import filter_keyframes
     from video2markdown.stage5_analyze_images import analyze_images
     
-    model_path = settings.resolve_whisper_model()
+    model_path = settings.resolve_whisper_model_path()
     if not model_path:
         click.echo("错误: 找不到 Whisper 模型", err=True)
         sys.exit(1)
@@ -192,7 +192,7 @@ def stage6(video_path: Path, output: Path, language: str):
     from video2markdown.stage5_analyze_images import analyze_images
     from video2markdown.stage6_generate import generate_document
     
-    model_path = settings.resolve_whisper_model()
+    model_path = settings.resolve_whisper_model_path()
     if not model_path:
         click.echo("错误: 找不到 Whisper 模型", err=True)
         sys.exit(1)
@@ -234,7 +234,7 @@ def process(video_path: Path, output: Path, language: str):
     click.echo()
     
     # 检查模型
-    model_path = settings.resolve_whisper_model()
+    model_path = settings.resolve_whisper_model_path()
     if not model_path:
         click.echo("错误: 找不到 Whisper 模型", err=True)
         sys.exit(1)

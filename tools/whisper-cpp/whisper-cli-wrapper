@@ -1,0 +1,12 @@
+#!/bin/bash
+# Whisper CLI Wrapper Script
+# 自动设置 LD_LIBRARY_PATH 并调用 whisper-cli
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 设置库路径
+export LD_LIBRARY_PATH="${SCRIPT_DIR}/lib:${LD_LIBRARY_PATH}"
+
+# 执行 whisper-cli
+exec "${SCRIPT_DIR}/whisper-cli" "$@"

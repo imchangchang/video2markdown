@@ -310,8 +310,13 @@ def _find_whisper_cli() -> Path:
     if cli_path:
         return cli_path
     
+    project_root = Path(__file__).parent.parent.parent
     candidates = [
-        Path(__file__).parent.parent.parent / "whisper.cpp" / "build" / "bin" / "whisper-cli",
+        # 项目内置版本（优先）
+        project_root / "tools" / "whisper-cpp" / "whisper-cli-wrapper",
+        project_root / "tools" / "whisper-cpp" / "whisper-cli",
+        # 向后兼容
+        project_root / "whisper.cpp" / "build" / "bin" / "whisper-cli",
         Path("whisper-cli"),
         Path("/usr/local/bin/whisper-cli"),
     ]
@@ -325,7 +330,10 @@ def _find_whisper_cli() -> Path:
         if result.returncode == 0:
             return Path(result.stdout.strip())
     
-    raise FileNotFoundError("whisper-cli not found. Build: cd whisper.cpp && cmake -B build && cmake --build build")
+    raise FileNotFoundError(
+        "whisper-cli not found. "
+        "请使用项目内置版本 (tools/whisper-cpp/) 或参考 docs/whisper-cpp-setup.md 编译安装"
+    )
 
 
 # CLI 入口

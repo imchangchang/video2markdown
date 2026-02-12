@@ -67,7 +67,7 @@ flowchart TD
         S5A_Detail["• 从视频原图提取<br>• 高质量JPG] -.-> S5A
         S5B_Detail["• 结合M1文稿上下文<br>• 理解图片与内容关系] -.-> S5B
         S5C_Detail["• 画面内容描述<br>• 关键元素提取<br>• 与文稿关联] -.-> S5C
-        S5_Time["耗时: 约 10-15 秒/张"]
+        S5_Time["耗时: 10~15]
         S5_Input --> S5A
     end
 

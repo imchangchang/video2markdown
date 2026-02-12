@@ -43,6 +43,23 @@ class TranscriptSegment:
     def to_srt_entry(self, index: int) -> str:
         """生成 SRT 条目."""
         return f"{index}\n{self.to_srt_time(self.start)} --> {self.to_srt_time(self.end)}\n{self.text}\n"
+    
+    def to_dict(self) -> dict:
+        """转换为字典（用于缓存）."""
+        return {
+            "start": self.start,
+            "end": self.end,
+            "text": self.text,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "TranscriptSegment":
+        """从字典创建（用于缓存恢复）."""
+        return cls(
+            start=data["start"],
+            end=data["end"],
+            text=data["text"],
+        )
 
 
 @dataclass  

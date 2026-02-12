@@ -25,17 +25,17 @@ variables:
 3. 生成最终文档结构
 
 输入格式：
-{{
+{
   "title": "{title}",
   "m1_text": "...",
   "images": {images}
-}}
+}
 
 输出格式（JSON）：
-{{
+{
   "title": "文档标题",
   "chapters": [
-    {{
+    {
       "id": 1,
       "title": "章节标题",
       "start_time": "00:00:00",
@@ -45,9 +45,9 @@ variables:
       "cleaned_transcript": "章节原文",
       "visual_timestamp": 30.0,
       "visual_reason": "配图原因"
-    }}
+    }
   ]
-}}
+}
 
 注意事项：
 1. M1 文稿已经是优化后的，直接使用其结构

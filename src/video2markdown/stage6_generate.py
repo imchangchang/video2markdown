@@ -20,6 +20,7 @@ from video2markdown.config import settings
 from video2markdown.models import (
     Chapter, Document, ImageDescriptions, KeyFrames, VideoTranscript
 )
+from video2markdown.stage5_analyze_images import _load_prompt_with_meta
 
 
 def generate_document(
@@ -56,7 +57,13 @@ def generate_document(
     if not prompt_path.exists():
         raise FileNotFoundError(f"Prompt 文件不存在: {prompt_path}")
     
-    system_msg, _, api_params = _load_prompt_with_meta(prompt_path)
+    system_msg, user_template, api_params = _load_prompt_with_meta(prompt_path)
+    
+    # 填充模板变量（使用安全替换，避免 JSON 中的 { 被当作格式标记）
+    user_content = user_template
+    user_content = user_content.replace("{title}", input_data["title"])
+    user_content = user_content.replace("{m1_text}", input_data["m1_text"])
+    user_content = user_content.replace("{images}", json.dumps(input_data["images"], ensure_ascii=False))
     
     # 调用 AI - 任务是在 M1 的合适位置插入配图
     response = client.chat.completions.create(
@@ -68,7 +75,7 @@ def generate_document(
             },
             {
                 "role": "user",
-                "content": json.dumps(input_data, ensure_ascii=False)
+                "content": user_content
             }
         ],
         **api_params,

@@ -57,8 +57,8 @@ venv.bak/
 .env.*.local
 
 # Whisper models (large binary files)
-whisper.cpp/models/*.bin
-whisper.cpp/models/*.model
+models/*.bin
+models/*.model
 
 # Testbench data (user content, not for git)
 testbench/input/*
@@ -149,4 +149,16 @@ log/
 .skill-set
 .vibe/
 AGENTS.md
+
+# ============================================
+# Tools - Whisper CPP
+# ============================================
+# 保留预编译的 whisper-cli 二进制文件
+!tools/
+!tools/whisper-cpp/
+!tools/whisper-cpp/*
+!tools/whisper-cpp/lib/
+!tools/whisper-cpp/lib/*.so*
+# 但忽略备份文件
+tools/whisper-cpp.bak/
 
