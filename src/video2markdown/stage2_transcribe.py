@@ -192,13 +192,62 @@ def transcribe_video(
     model_path: Path,
     language: str = "zh",
     temp_dir: Optional[Path] = None,
+    cache_dir: Optional[Path] = None,
+    use_cache: bool = True,
 ) -> VideoTranscript:
     """Stage 2 主函数: 完整的音频提取、转录、优化流程.
     
+    Args:
+        video_path: 视频文件路径
+        video_info: 视频信息
+        model_path: Whisper 模型路径
+        language: 语言代码
+        temp_dir: 临时目录
+        cache_dir: 缓存目录（用于保存转录结果，避免重复执行）
+        use_cache: 是否使用缓存
+        
     Returns:
         VideoTranscript (M1) - AI优化后的可读文稿
     """
     print(f"[Stage 2] 音频提取与文稿生成: {video_path.name}")
+    
+    # 设置缓存目录
+    if cache_dir is None:
+        cache_dir = settings.temp_dir / "cache" / "stage2"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 生成缓存键（基于视频文件哈希）
+    import hashlib
+    video_hash = hashlib.sha256(video_path.read_bytes()[:1024*1024]).hexdigest()[:16]
+    cache_key = f"{video_path.stem}_{video_hash}_{model_path.name}_{language}"
+    cache_path = cache_dir / f"{cache_key}_raw.json"
+    
+    # 检查缓存
+    if use_cache and cache_path.exists():
+        print(f"  📦 发现缓存，加载之前的转录结果...")
+        import json
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        
+        segments = [TranscriptSegment(**seg) for seg in cached["segments"]]
+        print(f"  ✓ 从缓存加载: {len(segments)} 个片段")
+        
+        # 2c: AI 文稿优化 (生成 M1) - 这部分不缓存，每次都重新优化
+        optimized_text = optimize_transcript(segments, video_path.stem, language)
+        
+        transcript = VideoTranscript(
+            video_path=video_path,
+            title=video_path.stem,
+            language=language,
+            segments=segments,
+            optimized_text=optimized_text,
+        )
+        
+        print(f"  ✓ M1 (视频文稿) 生成完成")
+        print(f"    - 原始转录: {len(segments)} 个片段 (来自缓存)")
+        print(f"    - 优化文稿: {len(optimized_text)} 字符")
+        
+        return transcript
     
     # 创建临时目录
     if temp_dir is None:
@@ -218,6 +267,20 @@ def transcribe_video(
         if language in ("zh", "auto"):
             for seg in segments:
                 seg.text = convert_to_simplified(seg.text)
+        
+        # 保存缓存（原始转录结果）
+        if use_cache:
+            import json
+            cache_data = {
+                "video_path": str(video_path),
+                "video_hash": video_hash,
+                "model": str(model_path),
+                "language": language,
+                "segments": [seg.to_dict() for seg in segments]
+            }
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            print(f"  💾 转录结果已缓存: {cache_path}")
         
         # 2c: AI 文稿优化 (生成 M1)
         optimized_text = optimize_transcript(segments, video_path.stem, language)
@@ -267,31 +330,44 @@ def _find_whisper_cli() -> Path:
 
 # CLI 入口
 if __name__ == "__main__":
-    import sys
+    import argparse
     
-    if len(sys.argv) < 3:
-        print("用法: python -m video2markdown.stage2_transcribe <视频文件> <模型路径>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Stage 2: 音频提取与文稿生成")
+    parser.add_argument("video_path", type=Path, help="视频文件路径")
+    parser.add_argument("model_path", type=Path, help="Whisper 模型路径")
+    parser.add_argument("--no-cache", action="store_true", help="不使用缓存，强制重新转录")
+    parser.add_argument("--clear-cache", action="store_true", help="清除缓存后执行")
+    args = parser.parse_args()
     
-    video_path = Path(sys.argv[1])
-    model_path = Path(sys.argv[2])
+    # 清除缓存（如果请求）
+    if args.clear_cache:
+        cache_dir = settings.temp_dir / "cache" / "stage2"
+        if cache_dir.exists():
+            import shutil
+            shutil.rmtree(cache_dir)
+            print(f"🗑️  已清除缓存: {cache_dir}")
     
     from video2markdown.stage1_analyze import analyze_video
-    video_info = analyze_video(video_path)
+    video_info = analyze_video(args.video_path)
     
-    transcript = transcribe_video(video_path, video_info, model_path)
+    transcript = transcribe_video(
+        args.video_path, 
+        video_info, 
+        args.model_path,
+        use_cache=not args.no_cache
+    )
     
     # 保存输出
     output_dir = settings.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 保存 SRT (原始转录，参考用)
-    srt_path = output_dir / f"{video_path.stem}.srt"
+    srt_path = output_dir / f"{args.video_path.stem}.srt"
     srt_path.write_text(transcript.to_srt(), encoding="utf-8")
     print(f"\n  SRT (原始转录): {srt_path}")
     
     # 保存 M1 (AI优化后的文稿，核心产物)
-    m1_path = output_dir / f"{video_path.stem}_word.md"
+    m1_path = output_dir / f"{args.video_path.stem}_word.md"
     m1_content = f"# {transcript.title}\n\n"
     m1_content += f"*AI优化后的视频文稿，可直接阅读替代视频*\n\n"
     m1_content += "---\n\n"
