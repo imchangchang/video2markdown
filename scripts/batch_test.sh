@@ -4,6 +4,22 @@
 
 set -o pipefail
 
+# 当前运行的子进程PID
+CURRENT_PID=""
+
+# 信号处理：捕获 Ctrl+C，终止所有子进程
+cleanup() {
+    echo ""
+    echo -e "${RED}收到中断信号，正在清理...${NC}"
+    # 终止当前运行的子进程（如果有）
+    if [ -n "$CURRENT_PID" ] && kill -0 "$CURRENT_PID" 2>/dev/null; then
+        kill -TERM "$CURRENT_PID" 2>/dev/null
+        wait "$CURRENT_PID" 2>/dev/null
+    fi
+    exit 130
+}
+trap cleanup INT TERM
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -141,8 +157,15 @@ for video_path in "${video_list[@]}"; do
     start_time=$(date +%s)
     
     # 运行处理（使用动态计算的超时）
-    timeout "$timeout_sec" $UV_CMD run python -m video2markdown process "$video_path" -o "$video_output" -l zh > "$video_output/processing.log" 2>&1
+    # --foreground: 让信号直接传递到子进程，Ctrl+C 可以立即停止
+    # --signal=TERM: 超时时发送 TERM 信号
+    timeout --foreground --signal=TERM "$timeout_sec" $UV_CMD run python -m video2markdown process "$video_path" -o "$video_output" -l zh > "$video_output/processing.log" 2>&1 &
+    CURRENT_PID=$!
+    
+    # 等待进程完成，同时响应 Ctrl+C
+    wait $CURRENT_PID
     exit_code=$?
+    CURRENT_PID=""
     
     # 计算耗时
     end_time=$(date +%s)
