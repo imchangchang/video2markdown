@@ -81,6 +81,9 @@ def generate_document(
         **api_params,
     )
     
+    # 显示 Token 用量和价格
+    _print_usage_info(response)
+    
     # 解析响应
     content = response.choices[0].message.content
     doc_data = _parse_response(content)
@@ -109,6 +112,36 @@ def generate_document(
     )
 
 
+def _print_usage_info(response) -> None:
+    """打印 API 用量和价格信息."""
+    if not hasattr(response, 'usage') or response.usage is None:
+        return
+    
+    usage = response.usage
+    prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+    completion_tokens = getattr(usage, 'completion_tokens', 0)
+    total_tokens = getattr(usage, 'total_tokens', 0)
+    
+    if total_tokens == 0:
+        return
+    
+    # Kimi K2.5 价格 (2025-02)
+    # 输入: ¥4.8 / 百万 tokens (约 $0.60)
+    # 输出: ¥20 / 百万 tokens (约 $2.50)
+    INPUT_PRICE_PER_1M = 4.8  # 人民币
+    OUTPUT_PRICE_PER_1M = 20.0  # 人民币
+    
+    input_cost = (prompt_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+    output_cost = (completion_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+    total_cost = input_cost + output_cost
+    
+    print(f"  📊 Token 用量:")
+    print(f"     输入: {prompt_tokens:,} tokens")
+    print(f"     输出: {completion_tokens:,} tokens")
+    print(f"     总计: {total_tokens:,} tokens")
+    print(f"  💰 预估费用: ¥{total_cost:.4f} (输入¥{input_cost:.4f} + 输出¥{output_cost:.4f})")
+
+
 def _prepare_input(
     transcript: VideoTranscript,
     keyframes: KeyFrames,
@@ -132,20 +165,55 @@ def _prepare_input(
 
 
 def _parse_response(content: str) -> dict:
-    """解析 AI 响应."""
-    content = content.strip()
+    """解析 AI 响应，增强错误处理."""
+    import re
+    
+    original_content = content.strip()
     
     # 处理 markdown 代码块
     if "```json" in content:
         start = content.find("```json") + 7
         end = content.find("```", start)
+        if end == -1:
+            end = len(content)
         content = content[start:end].strip()
     elif "```" in content:
         start = content.find("```") + 3
         end = content.find("```", start)
+        if end == -1:
+            end = len(content)
         content = content[start:end].strip()
     
-    return json.loads(content)
+    # 尝试解析 JSON
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"  ⚠️  JSON 解析失败: {e}")
+        print(f"  尝试修复...")
+        
+        # 尝试提取 JSON 对象（查找最外层的花括号内容）
+        try:
+            # 查找第一个 { 和最后一个 }
+            start_idx = content.find('{')
+            end_idx = content.rfind('}')
+            if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+                json_content = content[start_idx:end_idx+1]
+                return json.loads(json_content)
+        except Exception:
+            pass
+        
+        # 如果仍然失败，返回一个基本的结构
+        print(f"  ⚠️  无法解析 AI 响应，使用默认结构")
+        # 保存原始响应用于调试
+        debug_path = Path("test_outputs/temp/stage6_debug_response.txt")
+        debug_path.parent.mkdir(parents=True, exist_ok=True)
+        debug_path.write_text(original_content, encoding="utf-8")
+        print(f"  原始响应已保存到: {debug_path}")
+        
+        return {
+            "title": "解析失败 - 使用默认结构",
+            "chapters": []
+        }
 
 
 # CLI 入口
