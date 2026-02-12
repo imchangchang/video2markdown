@@ -103,6 +103,23 @@ def transcribe_audio(
     return segments
 
 
+def load_prompt(template_path: Path, **kwargs) -> str:
+    """加载 prompt 模板并填充变量."""
+    import yaml
+    
+    content = template_path.read_text(encoding="utf-8")
+    
+    # 解析 YAML frontmatter
+    if content.startswith("---"):
+        _, frontmatter, body = content.split("---", 2)
+        metadata = yaml.safe_load(frontmatter)
+        # 提取 body 部分（去掉 frontmatter）
+        content = body.strip()
+    
+    # 填充变量
+    return content.format(**kwargs)
+
+
 def optimize_transcript(
     segments: list[TranscriptSegment],
     title: str,
@@ -110,11 +127,8 @@ def optimize_transcript(
 ) -> str:
     """Stage 2c: AI 优化转录为可读文稿 (生成 M1).
     
-    将口语化的转录文本转换为结构化的可读文稿:
-    - 去除语气词、口头禅
-    - 分段落、加小标题
-    - 修正专业术语
-    - 去除重复内容
+    将口语化的转录文本转换为结构化的可读文稿.
+    Prompt 从 prompts/transcript_optimization.md 加载.
     """
     print(f"  [2c] AI 文稿优化...")
     
@@ -122,35 +136,34 @@ def optimize_transcript(
     raw_text = "\n".join(f"[{int(seg.start//60):02d}:{int(seg.start%60):02d}] {seg.text}" 
                          for seg in segments)
     
+    # 加载 prompt 模板
+    prompt_path = settings.prompts_dir / "transcript_optimization.md"
+    if not prompt_path.exists():
+        raise FileNotFoundError(f"Prompt 文件不存在: {prompt_path}")
+    
+    prompt = load_prompt(
+        prompt_path,
+        title=title,
+        raw_text=raw_text[:8000]  # 限制长度
+    )
+    
+    # 从 prompt frontmatter 获取参数
+    import yaml
+    prompt_meta = yaml.safe_load(
+        prompt_path.read_text(encoding="utf-8").split("---")[1]
+    )
+    api_params = prompt_meta.get("parameters", {})
+    system_msg = prompt_meta.get("system", "你是一位专业的文稿编辑。")
+    
     client = OpenAI(**settings.get_client_kwargs())
     
-    prompt = f"""请将以下视频转录文本转换为结构化的可读文稿。
-
-原始文本是语音转录，包含口语化表达。请将其优化为正式的阅读文稿：
-
-要求：
-1. 去除语气词（嗯、啊、那个、这个、就是说等）
-2. 去除重复内容
-3. 修正明显的语音识别错误
-4. 按逻辑分段，添加小标题（使用 ## 格式）
-5. 保留关键时间戳 [MM:SS] 在段落开头
-6. 确保专业术语准确
-7. 输出纯 Markdown 格式，不要其他解释
-
-标题: {title}
-
-原始转录：
-{raw_text[:8000]}  # 限制长度避免超出 token 限制
-
-请输出优化后的文稿："""
-
     response = client.chat.completions.create(
         model=settings.model,
         messages=[
-            {"role": "system", "content": "你是一位专业的文稿编辑，擅长将口语化转录转换为正式阅读文稿。"},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ],
-        temperature=1,  # kimi-k2.5 only supports temperature=1
+        **api_params,
     )
     
     optimized = response.choices[0].message.content.strip()
