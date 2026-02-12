@@ -70,6 +70,25 @@ class Settings(BaseSettings):
             "base_url": self.base_url,
         }
 
+    def resolve_whisper_cli(self) -> Optional[Path]:
+        """查找 whisper-cli 可执行文件."""
+        candidates = [
+            # CMake 构建版本（推荐）
+            PROJECT_ROOT / "whisper.cpp" / "build" / "bin" / "whisper-cli",
+            # 项目根目录
+            PROJECT_ROOT / "whisper-cli",
+            PROJECT_ROOT / "whisper-cpp",
+            # 系统路径
+            Path("/usr/local/bin/whisper-cli"),
+            Path("/usr/bin/whisper-cli"),
+        ]
+        
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate.resolve()
+        
+        return None
+
     def resolve_whisper_model_path(self) -> Optional[Path]:
         """解析 Whisper 模型路径.
         

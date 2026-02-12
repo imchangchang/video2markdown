@@ -69,7 +69,7 @@ def transcribe_with_whisper(
     output_json = audio_path.with_suffix(".wav.json")
     
     # 查找 whisper-cpp 可执行文件
-    whisper_cpp = _find_whisper_cpp()
+    whisper_cpp = _find_whisper_cli()
     
     cmd = [
         str(whisper_cpp),
@@ -176,12 +176,14 @@ def transcribe_video(
         audio_path.unlink(missing_ok=True)
 
 
-def _find_whisper_cpp() -> Path:
-    """查找 whisper-cpp 可执行文件."""
+def _find_whisper_cli() -> Path:
+    """查找 whisper-cli 可执行文件."""
+    # 优先使用 CMake 构建的版本
     candidates = [
-        Path("whisper-cpp"),
-        Path(__file__).parent.parent.parent / "whisper-cpp",
-        Path("/usr/local/bin/whisper-cpp"),
+        Path(__file__).parent.parent.parent / "whisper.cpp" / "build" / "bin" / "whisper-cli",
+        Path("whisper-cli"),
+        Path(__file__).parent.parent.parent / "whisper-cli",
+        Path("/usr/local/bin/whisper-cli"),
     ]
     
     for path in candidates:
@@ -189,11 +191,14 @@ def _find_whisper_cpp() -> Path:
             return path.absolute()
     
     # 尝试 which
-    result = subprocess.run(["which", "whisper-cpp"], capture_output=True, text=True)
-    if result.returncode == 0:
-        return Path(result.stdout.strip())
+    for cmd in ["whisper-cli", "whisper-cpp"]:
+        result = subprocess.run(["which", cmd], capture_output=True, text=True)
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
     
-    raise FileNotFoundError("whisper-cpp 可执行文件未找到")
+    raise FileNotFoundError(
+        "whisper-cli not found. Please build: cd whisper.cpp && cmake -B build && cmake --build build"
+    )
 
 
 # CLI 入口
