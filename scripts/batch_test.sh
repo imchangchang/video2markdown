@@ -2,7 +2,7 @@
 # Batch Test Script for Video2Markdown
 # 批量测试所有视频，生成对比报告
 
-set -e
+set -o pipefail
 
 # 颜色定义
 RED='\033[0;31m'
@@ -60,20 +60,32 @@ total=0
 success=0
 failed=0
 
+# 检查视频目录是否存在
+if [ ! -d "$VIDEO_DIR" ]; then
+    echo -e "${RED}错误: 视频目录不存在: $VIDEO_DIR${NC}"
+    exit 1
+fi
+
+# 获取视频列表
+video_list=()
 for video in "$VIDEO_DIR"/*.mp4; do
-    [ -f "$video" ] || continue
-    ((total++))
+    [ -f "$video" ] && video_list+=("$video")
 done
+
+total=${#video_list[@]}
+
+if [ $total -eq 0 ]; then
+    echo -e "${RED}错误: 未在 $VIDEO_DIR 找到视频文件${NC}"
+    exit 1
+fi
 
 echo -e "发现 ${YELLOW}$total${NC} 个视频文件"
 echo ""
 
 # 处理每个视频
 idx=0
-for video_path in "$VIDEO_DIR"/*.mp4; do
-    [ -f "$video_path" ] || continue
-    
-    ((idx++))
+for video_path in "${video_list[@]}"; do
+    idx=$((idx + 1))
     video_name=$(basename "$video_path")
     video_stem="${video_name%.*}"
     video_output="$OUTPUT_DIR/$video_stem"
@@ -87,10 +99,8 @@ for video_path in "$VIDEO_DIR"/*.mp4; do
     start_time=$(date +%s)
     
     # 运行处理（带超时保护）
-    set +e
     timeout 600 $UV_CMD run python -m video2markdown process "$video_path" -o "$video_output" -l zh > "$video_output/processing.log" 2>&1
     exit_code=$?
-    set -e
     
     # 计算耗时
     end_time=$(date +%s)
@@ -100,15 +110,15 @@ for video_path in "$VIDEO_DIR"/*.mp4; do
     # 分析结果
     if [ $exit_code -eq 0 ]; then
         status="${GREEN}✓ 成功${NC}"
-        ((success++))
+        success=$((success + 1))
         status_md="✅ 成功"
     elif [ $exit_code -eq 124 ]; then
         status="${RED}✗ 超时${NC}"
-        ((failed++))
+        failed=$((failed + 1))
         status_md="⏱️ 超时"
     else
         status="${RED}✗ 失败${NC}"
-        ((failed++))
+        failed=$((failed + 1))
         status_md="❌ 失败"
     fi
     
