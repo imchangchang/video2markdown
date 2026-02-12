@@ -28,10 +28,12 @@ def generate_document(
     descriptions: ImageDescriptions,
     title: Optional[str] = None,
 ) -> Document:
-    """AI 生成文档结构.
+    """AI 图文融合生成.
+    
+    将 M1 (AI优化文稿)、M2 (关键配图)、M3 (配图说明) 融合为最终文档结构.
     
     Args:
-        transcript: 视频文字稿 (M1)
+        transcript: 视频文稿 (M1，已优化)
         keyframes: 关键配图 (M2)
         descriptions: 配图说明 (M3)
         title: 文档标题
@@ -39,7 +41,7 @@ def generate_document(
     Returns:
         Document 文档结构
     """
-    print(f"[Stage 6] AI 文档生成")
+    print(f"[Stage 6] AI 图文融合生成")
     
     client = OpenAI(**settings.get_client_kwargs())
     doc_title = title or transcript.title
@@ -47,15 +49,15 @@ def generate_document(
     # 准备输入数据
     input_data = _prepare_input(transcript, keyframes, descriptions)
     
-    print(f"  调用 AI 生成文档结构...")
+    print(f"  调用 AI 融合 M1 + M2 + M3...")
     
-    # 调用 AI
+    # 调用 AI - 任务是在 M1 的合适位置插入配图
     response = client.chat.completions.create(
         model=settings.model,
         messages=[
             {
                 "role": "system", 
-                "content": _get_document_prompt()
+                "content": _get_merge_prompt()
             },
             {
                 "role": "user",
@@ -99,15 +101,6 @@ def _prepare_input(
     descriptions: ImageDescriptions,
 ) -> dict:
     """准备 AI 输入数据."""
-    # 文字稿
-    segments_data = []
-    for seg in transcript.segments:
-        segments_data.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text,
-        })
-    
     # 配图信息
     images_data = []
     for desc in descriptions.descriptions:
@@ -119,31 +112,31 @@ def _prepare_input(
     
     return {
         "title": transcript.title,
-        "language": transcript.language,
-        "duration": transcript.segments[-1].end if transcript.segments else 0,
-        "segments": segments_data,
+        "m1_text": transcript.optimized_text,  # 使用 AI 优化后的文稿
         "images": images_data,
     }
 
 
-def _get_document_prompt() -> str:
-    """获取文档生成提示."""
-    return """你是一位专业的视频内容编辑。请将视频转录文本转换为结构化的 Markdown 文档。
+def _get_merge_prompt() -> str:
+    """获取图文融合提示."""
+    return """你是一位专业的文档编辑。请将视频文稿与配图信息融合为最终的图文文档结构。
+
+输入：
+1. m1_text: AI优化后的视频文稿（已分段、有结构）
+2. images: 关键配图列表（时间戳、描述）
 
 任务：
-1. 将内容划分为 3-6 个章节
-2. 每个章节包含：标题、时间范围、摘要、关键要点、清洗后的原文
-3. 去除语气词，修正识别错误
-4. 将所有内容转换为简体中文
-5. 根据提供的图片描述，判断每个章节是否需要配图，选择合适的图片时间戳
+1. 分析 M1 文稿的结构，识别章节边界
+2. 为每个章节选择合适的配图（根据内容相关性）
+3. 生成最终文档结构
 
 输入格式：
 {
   "title": "视频标题",
-  "language": "zh",
-  "duration": 600,
-  "segments": [{"start": 0, "end": 5, "text": "..."}],
-  "images": [{"timestamp": 30, "description": "...", "key_elements": [...]}]
+  "m1_text": "## 第一章...",
+  "images": [
+    {"timestamp": 30, "description": "架构图", "key_elements": [...]}
+  ]
 }
 
 输出格式（JSON）：
@@ -155,20 +148,21 @@ def _get_document_prompt() -> str:
       "title": "章节标题",
       "start_time": "00:00:00",
       "end_time": "00:05:00",
-      "summary": "AI 生成的摘要",
-      "key_points": ["要点1", "要点2"],
-      "cleaned_transcript": "清洗后的原文",
-      "visual_timestamp": 125.5,
-      "visual_reason": "展示架构图"
+      "summary": "章节摘要",
+      "key_points": ["要点1"],
+      "cleaned_transcript": "章节原文",
+      "visual_timestamp": 30.0,
+      "visual_reason": "配图原因"
     }
   ]
 }
 
 注意事项：
-1. 所有文本必须是简体中文
-2. 只输出 JSON，不要有其他内容
-3. 确保 JSON 格式正确
-4. 时间戳格式为 HH:MM:SS"""
+1. M1 文稿已经是优化后的，直接使用其结构
+2. 为每个章节选择最相关的一张配图
+3. 如果某章节没有合适的配图，visual_timestamp 设为 null
+4. 只输出 JSON，不要有其他内容
+5. 时间戳格式为 HH:MM:SS"""
 
 
 def _parse_response(content: str) -> dict:

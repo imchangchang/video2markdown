@@ -67,14 +67,31 @@ class VideoTranscript:
         )
     
     def to_word_document(self) -> str:
-        """生成纯文字稿 (无配图，仅带时间戳和文字)."""
-        lines = [f"# {self.title}", "", f"视频文稿 | 语言: {self.language}", ""]
+        """生成 M1 视频文稿 (AI优化后的可读文稿).
         
-        for seg in self.segments:
-            time_str = f"[{int(seg.start//60):02d}:{int(seg.start%60):02d}]"
-            lines.append(f"{time_str} {seg.text}")
-        
-        return "\n".join(lines)
+        如果 optimized_text 存在则使用它，否则退化为原始转录。
+        """
+        if self.optimized_text:
+            # M1: AI优化后的文稿
+            lines = [
+                f"# {self.title}",
+                "",
+                f"*AI优化后的视频文稿，可直接阅读替代视频*",
+                "",
+                f"语言: {self.language} | 原始片段数: {len(self.segments)}",
+                "",
+                "---",
+                "",
+                self.optimized_text,
+            ]
+            return "\n".join(lines)
+        else:
+            # 退化方案: 原始转录
+            lines = [f"# {self.title}", "", f"原始转录 | 语言: {self.language}", ""]
+            for seg in self.segments:
+                time_str = f"[{int(seg.start//60):02d}:{int(seg.start%60):02d}]"
+                lines.append(f"{time_str} {seg.text}")
+            return "\n".join(lines)
     
     def get_text_around(self, timestamp: float, window: float = 10.0) -> str:
         """获取指定时间点前后的文本."""
