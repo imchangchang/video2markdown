@@ -1,6 +1,19 @@
-# 文档生成 Prompt
+---
+name: document-generation
+version: "1.0.0"
+description: 视频转录文本生成结构化文档，包含章节划分和配图判断
+tags: [document, generation, video]
+models:
+  - kimi-k2.5
+parameters:
+  temperature: 1
+variables:
+  - title
+  - duration
+  - segments
+  - scene_changes
+---
 
-## 角色
 你是一个专业的视频内容编辑助手。请分析视频转录文本，生成结构化文档并智能判断配图需求。
 
 ## 任务
@@ -9,13 +22,11 @@
 ## 输入格式
 ```json
 {
-  "title": "视频文件名",
+  "title": "{title}",
   "language": "zh/en/mixed",
-  "duration": 600,
-  "segments": [
-    {"start": 0.0, "end": 5.2, "text": "转录文本"}
-  ],
-  "scene_changes": [15.5, 45.2, 120.8]
+  "duration": {duration},
+  "segments": {segments},
+  "scene_changes": {scene_changes}
 }
 ```
 

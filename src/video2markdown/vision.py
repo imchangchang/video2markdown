@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from video2markdown.config import settings
 from video2markdown.video import resize_for_api
+from video2markdown.prompts import get_loader
 
 
 @dataclass
@@ -135,6 +136,58 @@ class VisionProcessor:
         self.client = OpenAI(**(api_key and {"api_key": api_key} or settings.get_client_kwargs()))
         self.model = settings.vision_model
         self.api_call_count = 0
+        self._load_prompts()
+    
+    def _load_prompts(self):
+        """Load prompt templates from files using PromptLoader."""
+        try:
+            loader = get_loader()
+            self.prompt = loader.load("image_analysis", model=self.model)
+        except FileNotFoundError as e:
+            print(f"Warning: Could not load prompt file: {e}")
+            print("Using fallback prompt...")
+            self.prompt = self._get_fallback_prompt()
+    
+    def _get_fallback_prompt(self):
+        """Fallback prompt when file loading fails."""
+        from dataclasses import dataclass as dc
+        
+        @dc
+        class FallbackPrompt:
+            name: str = "image-analysis-fallback"
+            content: str = """你是一位专业的视频内容分析师。请分析这张视频截图，并用简体中文（非繁体）简要描述。
+
+重要提示：
+1. 输出必须是简体中文，不要使用繁体中文
+2. 如果这是PPT、板书、代码或文档截图，请提取关键文字内容
+3. 如果是无关画面（风景、黑屏、过渡动画），请在description中写[无关]
+4. 描述要简洁，突出重点
+
+输出格式（JSON）：
+{
+  "description": "简体中文描述，如无关请写[无关]",
+  "key_elements": ["关键元素1", "关键元素2"]
+}"""
+            metadata: dict = None
+            
+            def __post_init__(self):
+                if self.metadata is None:
+                    self.metadata = {"temperature": 1}
+            
+            def render_messages(self, **kwargs):
+                content = self.content
+                return [
+                    {"role": "system", "content": content},
+                    {"role": "user", "content": kwargs.get("user_content", "请分析这张视频截图：")}
+                ]
+            
+            def get_api_params(self):
+                return self.metadata
+            
+            def get_user_template(self):
+                return "{context}\n\n请用简体中文分析这张截图与上述内容的关联："
+        
+        return FallbackPrompt()
     
     def should_analyze_image(
         self,
@@ -192,43 +245,38 @@ class VisionProcessor:
         
         mime_type = "image/png" if processed_path.suffix.lower() == ".png" else "image/jpeg"
         
-        # 构建提示 - 强调简体中文输出
-        system_prompt = (
-            "你是一位专业的视频内容分析师。请分析这张视频截图，并用简体中文（非繁体）简要描述。\n\n"
-            "重要提示：\n"
-            "1. 输出必须是简体中文，不要使用繁体中文\n"
-            "2. 如果这是PPT、板书、代码或文档截图，请提取关键文字内容\n"
-            "3. 如果是无关画面（风景、黑屏、过渡动画），请在description中写[无关]\n"
-            "4. 描述要简洁，突出重点\n\n"
-            "输出格式（JSON）：\n"
-            "{\n"
-            '  "description": "简体中文描述，如无关请写[无关]",\n'
-            '  "key_elements": ["关键元素1", "关键元素2"]\n'
-            "}"
-        )
-        
-        user_text = "请用简体中文分析这张视频截图："
+        # Render user content using prompt template
+        user_content = None
         if context:
-            user_text = f"视频上下文：{context[:300]}\n\n请用简体中文分析这张截图与上述内容的关联："
+            user_template = self.prompt.get_user_template()
+            if user_template:
+                user_content = user_template.format(context=context[:300])
+        
+        if not user_content:
+            user_content = "请用简体中文分析这张视频截图："
         
         # Call API
         self.api_call_count += 1
-        kwargs = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": [
-                    {"type": "text", "text": user_text},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_data}"}}
-                ]}
-            ],
-        }
         
-        # kimi-k2.5 only supports temperature=1
-        if "k2.5" not in self.model:
-            kwargs["temperature"] = 0.3
+        # Build messages with image
+        messages = self.prompt.render_messages(user_content=user_content)
         
-        completion = self.client.chat.completions.create(**kwargs)
+        # Add image to the last user message
+        if messages and messages[-1]["role"] == "user":
+            text_content = messages[-1]["content"]
+            messages[-1]["content"] = [
+                {"type": "text", "text": text_content},
+                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_data}"}}
+            ]
+        
+        # Get API parameters from prompt metadata
+        api_params = self.prompt.get_api_params()
+        
+        completion = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            **api_params,
+        )
         content = completion.choices[0].message.content
         
         return self._parse_description(content, 0.0, image_path, reason)

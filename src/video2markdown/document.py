@@ -14,6 +14,7 @@ from typing import Optional
 from openai import OpenAI
 
 from video2markdown.config import settings
+from video2markdown.prompts import get_loader, Prompt
 
 
 @dataclass
@@ -47,52 +48,14 @@ class DocumentGenerator:
         self._load_prompts()
     
     def _load_prompts(self):
-        """Load prompt templates from files."""
+        """Load prompt templates from files using PromptLoader."""
         try:
-            self.doc_prompt = settings.get_prompt(settings.prompt_document_generation)
+            loader = get_loader()
+            self.prompt = loader.load("document_generation", model=settings.model)
         except FileNotFoundError as e:
             print(f"Warning: Could not load prompt file: {e}")
             print("Using fallback prompt...")
-            self.doc_prompt = self._get_fallback_document_prompt()
-    
-    def _get_fallback_document_prompt(self) -> str:
-        """Fallback prompt if file not found."""
-        return """你是一个专业的视频内容编辑助手。请分析视频转录文本，生成结构化文档。
-
-任务：
-1. 将内容划分为3-6个章节
-2. 每个章节包含：标题、时间范围、摘要、关键要点
-3. 去除语气词，修正识别错误
-4. 将所有内容转换为简体中文
-5. 判断每个章节是否需要配图
-
-输入格式：
-{
-  "title": "视频标题",
-  "language": "zh/en",
-  "duration": 600,
-  "segments": [{"start": 0.0, "end": 5.0, "text": "转录文本"}],
-  "scene_changes": [10.0, 30.0, 60.0]
-}
-
-输出格式（JSON）：
-{
-  "title": "文档标题",
-  "chapters": [
-    {
-      "id": 1,
-      "title": "章节标题",
-      "start_time": "00:00:00",
-      "end_time": "00:05:00",
-      "summary": "摘要",
-      "key_points": ["要点1"],
-      "cleaned_transcript": "清洗后的原文",
-      "needs_visual": true,
-      "visual_timestamp": 30.0,
-      "visual_reason": "说明原因"
-    }
-  ]
-}"""
+            self.prompt = self._get_fallback_prompt()
     
     def generate_document_structure(
         self,
@@ -129,16 +92,24 @@ class DocumentGenerator:
             "scene_changes": scene_changes,
         }
         
+        # Render messages using PromptLoader
+        messages = self.prompt.render_messages(
+            title=title,
+            duration=duration,
+            segments=json.dumps(segments, ensure_ascii=False),
+            scene_changes=json.dumps(scene_changes),
+            user_content=json.dumps(input_data, ensure_ascii=False)
+        )
+        
+        # Get API parameters from prompt metadata
+        api_params = self.prompt.get_api_params()
+        
         # Call AI
         try:
             response = self.client.chat.completions.create(
                 model=settings.model,
-                messages=[
-                    {"role": "system", "content": self.doc_prompt},
-                    {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
-                ],
-                # Note: kimi-k2.5 only supports temperature=1
-                temperature=1,
+                messages=messages,
+                **api_params,
             )
             
             # Parse JSON response

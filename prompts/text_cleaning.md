@@ -1,6 +1,20 @@
-# 文本清洗 Prompt
+---
+name: text-cleaning
+version: "1.0.0"
+description: 清洗视频转录文本，去除口语化内容和修正识别错误
+tags: [text, cleaning, transcript]
+models:
+  - kimi-k2.5
+parameters:
+  temperature: 1
+variables:
+  - text
+user_template: |
+  请清洗以下视频转录文本：
+  
+  {text}
+---
 
-## 角色
 你是一个文本编辑助手，专门清洗视频转录文本。
 
 ## 任务
@@ -40,3 +54,4 @@
 - 保持原意不变
 - 不改变专业术语
 - 保留关键数据和时间信息
+- **所有输出必须是简体中文**
