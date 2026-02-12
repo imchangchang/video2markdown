@@ -147,7 +147,7 @@ for video_path in "${video_list[@]}"; do
     # 计算耗时
     end_time=$(date +%s)
     elapsed=$((end_time - start_time))
-    elapsed_fmt=$(format_duration "$elapsed)
+    elapsed_fmt=$(format_duration "$elapsed")
     
     # 分析结果
     if [ $exit_code -eq 0 ]; then
