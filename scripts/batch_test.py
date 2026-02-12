@@ -26,6 +26,26 @@ VIDEO_DIR = Path("testdata/videos")
 DEFAULT_OUTPUT = Path("test_outputs/results") / f"batch_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 TIMEOUT_SECONDS = 600  # 10分钟超时
 
+# 检测 uv 命令
+def find_uv():
+    """查找 uv 命令或虚拟环境 Python."""
+    # 优先使用 uv
+    result = subprocess.run(["which", "uv"], capture_output=True)
+    if result.returncode == 0:
+        return ["uv"]
+    
+    # 尝试虚拟环境
+    venv_python = Path(".venv/bin/python")
+    if venv_python.exists():
+        return [str(venv_python), "-m"]
+    
+    # 尝试系统 Python
+    result = subprocess.run(["which", "python3"], capture_output=True)
+    if result.returncode == 0:
+        return ["python3", "-m"]
+    
+    raise RuntimeError("未找到 uv 或 python 命令，请先安装 uv: https://github.com/astral-sh/uv")
+
 
 def run_command(cmd: list[str], cwd: Optional[Path] = None) -> tuple[int, str, float]:
     """运行命令，返回 (exit_code, output, elapsed_seconds)."""
@@ -49,8 +69,9 @@ def analyze_video_stage1(video_path: Path) -> dict:
     """只运行 Stage 1，获取视频分析结果."""
     print(f"  [Stage 1] 分析视频...")
     
-    cmd = [
-        "uv", "run", "python", "-m", "video2markdown", "stage1",
+    uv_cmd = find_uv()
+    cmd = uv_cmd + [
+        "run", "python", "-m", "video2markdown", "stage1",
         str(video_path)
     ]
     
@@ -106,8 +127,9 @@ def process_video_full(video_path: Path, output_dir: Path) -> dict:
     video_output = output_dir / video_path.stem
     video_output.mkdir(parents=True, exist_ok=True)
     
-    cmd = [
-        "uv", "run", "python", "-m", "video2markdown", "process",
+    uv_cmd = find_uv()
+    cmd = uv_cmd + [
+        "run", "python", "-m", "video2markdown", "process",
         str(video_path),
         "-o", str(video_output),
         "-l", "zh"

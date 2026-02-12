@@ -11,6 +11,19 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# 查找 uv 命令
+if command -v uv &> /dev/null; then
+    UV_CMD="uv"
+elif [ -f "./.venv/bin/python" ]; then
+    # 使用虚拟环境直接运行
+    UV_CMD="./.venv/bin/python -m"
+else
+    echo -e "${RED}错误: 未找到 uv 命令${NC}"
+    echo "请安装 uv: https://github.com/astral-sh/uv"
+    echo "或使用: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
 # 配置
 VIDEO_DIR="testdata/videos"
 OUTPUT_DIR="test_outputs/results/batch_test_$(date +%Y%m%d_%H%M%S)"
@@ -75,7 +88,7 @@ for video_path in "$VIDEO_DIR"/*.mp4; do
     
     # 运行处理（带超时保护）
     set +e
-    timeout 600 uv run python -m video2markdown process "$video_path" -o "$video_output" -l zh > "$video_output/processing.log" 2>&1
+    timeout 600 $UV_CMD run python -m video2markdown process "$video_path" -o "$video_output" -l zh > "$video_output/processing.log" 2>&1
     exit_code=$?
     set -e
     
