@@ -23,6 +23,8 @@ class VideoInfo:
     audio_codec: str
     video_codec: str
     scene_changes: list[float] = field(default_factory=list)  # 场景变化时间点
+    stable_intervals: list[tuple[float, float]] = field(default_factory=list)  # 稳定时间段 [(start, end), ...]
+    unstable_intervals: list[tuple[float, float]] = field(default_factory=list)  # 不稳定/动画时间段
 
 
 @dataclass

@@ -1,17 +1,18 @@
 """Stage 1: 视频分析.
 
 输入: 视频文件路径
-输出: VideoInfo (包含元数据和场景变化时间点)
+输出: VideoInfo (包含元数据、场景变化和稳定/不稳定区间)
 
 验证点:
     - 视频能否正常读取
     - 时长、分辨率是否正确
     - 场景变化时间点是否合理
+    - 稳定/不稳定区间划分是否准确
 """
 
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
@@ -20,13 +21,13 @@ from video2markdown.models import VideoInfo
 
 
 def analyze_video(video_path: Path) -> VideoInfo:
-    """分析视频文件，提取元数据和场景变化.
+    """分析视频文件，提取元数据和场景变化区间.
     
     Args:
         video_path: 视频文件路径
         
     Returns:
-        VideoInfo 包含视频元数据和场景变化时间点
+        VideoInfo 包含视频元数据、场景变化和稳定/不稳定区间
         
     Raises:
         FileNotFoundError: 视频文件不存在
@@ -40,13 +41,20 @@ def analyze_video(video_path: Path) -> VideoInfo:
     # 使用 ffprobe 获取视频元数据
     info = _get_video_metadata(video_path)
     
-    # 检测场景变化
-    print(f"  检测场景变化...")
-    scene_changes = _detect_scene_changes(video_path)
+    # 检测场景变化和不稳定区间
+    print(f"  检测场景变化和稳定区间...")
+    scene_changes, stable_intervals, unstable_intervals = _analyze_video_stability(
+        video_path, info.duration
+    )
+    
     info.scene_changes = scene_changes
+    info.stable_intervals = stable_intervals
+    info.unstable_intervals = unstable_intervals
     
     print(f"  ✓ 时长: {info.duration:.1f}s, 分辨率: {info.width}x{info.height}")
     print(f"  ✓ 检测到 {len(scene_changes)} 个场景变化点")
+    print(f"  ✓ 稳定区间: {len(stable_intervals)} 段 (总 {_total_duration(stable_intervals):.1f}s)")
+    print(f"  ✓ 不稳定区间: {len(unstable_intervals)} 段 (总 {_total_duration(unstable_intervals):.1f}s)")
     
     return info
 
@@ -84,26 +92,35 @@ def _get_video_metadata(video_path: Path) -> VideoInfo:
         width=stream.get("width", 0),
         height=stream.get("height", 0),
         fps=fps,
-        audio_codec="unknown",  # 可在需要时添加
+        audio_codec="unknown",
         video_codec="unknown",
-        scene_changes=[]
+        scene_changes=[],
+        stable_intervals=[],
+        unstable_intervals=[]
     )
 
 
-def _detect_scene_changes(
+def _analyze_video_stability(
     video_path: Path,
-    threshold: float = 30.0,
-    min_scene_duration: float = 1.0
-) -> list[float]:
-    """检测视频场景变化时间点.
+    duration: float,
+    stability_threshold: float = 8.0,
+    min_stable_duration: float = 1.0
+) -> Tuple[list[float], list[Tuple[float, float]], list[Tuple[float, float]]]:
+    """分析视频稳定性，识别场景变化和稳定/不稳定区间.
+    
+    策略:
+    1. 粗粒度采样，找出可能的变化点
+    2. 对每个变化点用二分法精确化边界
+    3. 标记稳定区间（适合截图）和不稳定区间（动画/过渡）
     
     Args:
         video_path: 视频路径
-        threshold: 场景变化阈值 (帧间差异阈值)
-        min_scene_duration: 最小镇景时长 (秒)
+        duration: 视频时长
+        stability_threshold: 稳定性阈值（帧差异低于此值为稳定）
+        min_stable_duration: 最小镇定时长
         
     Returns:
-        场景变化时间点列表 (秒)
+        (scene_changes, stable_intervals, unstable_intervals)
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -112,47 +129,181 @@ def _detect_scene_changes(
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    scene_changes = []
-    prev_frame = None
-    prev_timestamp = 0.0
-    frame_idx = 0
+    # 第一步：粗粒度检测，找出变化点
+    print(f"    第一步: 粗粒度检测...")
+    rough_changes = _detect_rough_changes(cap, fps, total_frames)
     
-    while True:
+    # 第二步：精确化每个变化点的边界
+    print(f"    第二步: 精确化 {len(rough_changes)} 个变化点边界...")
+    precise_intervals = []
+    for change_ts in rough_changes:
+        start, end = _precise_change_boundary(cap, fps, change_ts, stability_threshold)
+        precise_intervals.append((start, end))
+    
+    cap.release()
+    
+    # 第三步：构建稳定和不稳定区间
+    print(f"    第三步: 构建稳定区间...")
+    stable_intervals, unstable_intervals = _build_intervals(
+        duration, precise_intervals, min_stable_duration
+    )
+    
+    # 场景变化点取不稳定区间的中间位置
+    scene_changes = [(start + end) / 2 for start, end in unstable_intervals]
+    
+    return scene_changes, stable_intervals, unstable_intervals
+
+
+def _detect_rough_changes(cap: cv2.VideoCapture, fps: float, total_frames: int) -> list[float]:
+    """粗粒度检测变化点（每秒采样）."""
+    changes = []
+    prev_frame = None
+    prev_ts = 0.0
+    
+    for frame_idx in range(0, total_frames, int(fps)):  # 每秒一帧
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret, frame = cap.read()
         if not ret:
             break
         
-        # 每秒检测一帧 (降低计算量)
-        if frame_idx % int(fps) != 0:
-            frame_idx += 1
-            continue
-        
         timestamp = frame_idx / fps
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, (320, 180))  # 缩小加速
         
         if prev_frame is not None:
-            # 计算帧间差异
-            diff = cv2.absdiff(prev_frame, gray)
-            mean_diff = np.mean(diff)
-            
-            # 检测场景变化
-            if mean_diff > threshold:
-                if timestamp - prev_timestamp >= min_scene_duration:
-                    scene_changes.append(timestamp)
-                    prev_timestamp = timestamp
+            diff = _frame_diff_fast(prev_frame, gray)
+            if diff > 15.0:  # 粗粒度阈值
+                if timestamp - prev_ts >= 1.0:  # 至少间隔1秒
+                    changes.append(timestamp)
+                    prev_ts = timestamp
         
         prev_frame = gray
-        frame_idx += 1
         
-        # 每 10 秒打印进度
         if frame_idx % (int(fps) * 10) == 0:
             progress = (frame_idx / total_frames) * 100
-            print(f"    场景检测进度: {progress:.1f}%", end="\r")
+            print(f"      进度: {progress:.1f}%", end="\r")
     
-    cap.release()
     print()  # 换行
+    return changes
+
+
+def _precise_change_boundary(
+    cap: cv2.VideoCapture,
+    fps: float,
+    rough_ts: float,
+    threshold: float,
+    search_window: float = 2.0
+) -> Tuple[float, float]:
+    """用二分法精确化场景变化的边界.
     
-    return scene_changes
+    返回:
+        (unstable_start, unstable_end) 不稳定区间的开始和结束时间
+    """
+    # 搜索范围
+    search_start = max(0, rough_ts - search_window)
+    search_end = rough_ts + search_window
+    
+    # 采样更多帧进行精确分析
+    samples = []
+    ts = search_start
+    while ts <= search_end:
+        frame = _read_frame_at(cap, ts, fps)
+        if frame is not None:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.resize(gray, (160, 90))  # 更小尺寸快速比较
+            samples.append((ts, gray))
+        ts += 0.1  # 100ms 步长
+    
+    if len(samples) < 3:
+        return (rough_ts - 0.5, rough_ts + 0.5)
+    
+    # 计算每帧的稳定性（与相邻帧的差异）
+    stability = []
+    for i, (ts, frame) in enumerate(samples):
+        if i == 0 or i == len(samples) - 1:
+            stability.append((ts, float('inf')))
+            continue
+        
+        diff_prev = _frame_diff_fast(samples[i-1][1], frame)
+        diff_next = _frame_diff_fast(frame, samples[i+1][1])
+        avg_diff = (diff_prev + diff_next) / 2
+        stability.append((ts, avg_diff))
+    
+    # 找到不稳定区间的起点和终点
+    # 不稳定 = 差异度高于阈值
+    unstable_points = [(ts, diff) for ts, diff in stability if diff > threshold]
+    
+    if not unstable_points:
+        # 没有发现明显不稳定，返回粗略估计
+        return (rough_ts - 0.3, rough_ts + 0.3)
+    
+    # 不稳定区间的边界
+    unstable_start = min(ts for ts, _ in unstable_points)
+    unstable_end = max(ts for ts, _ in unstable_points)
+    
+    # 扩展一点边界，确保捕获完整过渡
+    unstable_start = max(search_start, unstable_start - 0.2)
+    unstable_end = min(search_end, unstable_end + 0.2)
+    
+    return (unstable_start, unstable_end)
+
+
+def _build_intervals(
+    duration: float,
+    unstable_intervals: list[Tuple[float, float]],
+    min_stable_duration: float
+) -> Tuple[list[Tuple[float, float]], list[Tuple[float, float]]]:
+    """构建稳定和不稳定区间列表.
+    
+    合并重叠的不稳定区间，剩下的就是稳定区间。
+    """
+    if not unstable_intervals:
+        # 整个视频都是稳定的
+        return ([(0, duration)], [])
+    
+    # 排序并合并重叠的不稳定区间
+    unstable_intervals.sort(key=lambda x: x[0])
+    merged_unstable = [list(unstable_intervals[0])]
+    
+    for start, end in unstable_intervals[1:]:
+        if start <= merged_unstable[-1][1]:  # 重叠或相邻
+            merged_unstable[-1][1] = max(merged_unstable[-1][1], end)
+        else:
+            merged_unstable.append([start, end])
+    
+    # 构建稳定区间（不稳定区间之间的空隙）
+    stable_intervals = []
+    prev_end = 0.0
+    
+    for start, end in merged_unstable:
+        if start > prev_end and start - prev_end >= min_stable_duration:
+            stable_intervals.append((prev_end, start))
+        prev_end = max(prev_end, end)
+    
+    # 添加最后一个稳定区间
+    if prev_end < duration and duration - prev_end >= min_stable_duration:
+        stable_intervals.append((prev_end, duration))
+    
+    return (stable_intervals, [(s, e) for s, e in merged_unstable])
+
+
+def _read_frame_at(cap: cv2.VideoCapture, timestamp: float, fps: float) -> Optional[np.ndarray]:
+    """在指定时间戳读取帧."""
+    frame_idx = int(timestamp * fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    ret, frame = cap.read()
+    return frame if ret else None
+
+
+def _frame_diff_fast(frame1: np.ndarray, frame2: np.ndarray) -> float:
+    """快速计算两帧差异（用于粗粒度检测）."""
+    diff = cv2.absdiff(frame1, frame2)
+    return np.mean(diff)
+
+
+def _total_duration(intervals: list[Tuple[float, float]]) -> float:
+    """计算区间总时长."""
+    return sum(end - start for start, end in intervals)
 
 
 # CLI 入口
@@ -171,6 +322,12 @@ if __name__ == "__main__":
     print(f"  时长: {info.duration:.2f}s")
     print(f"  分辨率: {info.width}x{info.height}")
     print(f"  帧率: {info.fps:.2f}")
-    print(f"  场景变化: {len(info.scene_changes)} 个")
-    for ts in info.scene_changes[:10]:  # 只显示前 10 个
+    print(f"\n  场景变化点:")
+    for ts in info.scene_changes[:10]:
         print(f"    - {ts:.2f}s")
+    print(f"\n  稳定区间 (适合截图):")
+    for start, end in info.stable_intervals[:10]:
+        print(f"    - {start:.2f}s ~ {end:.2f}s (持续 {end-start:.1f}s)")
+    print(f"\n  不稳定区间 (动画/过渡):")
+    for start, end in info.unstable_intervals[:10]:
+        print(f"    - {start:.2f}s ~ {end:.2f}s (持续 {end-start:.1f}s)")
