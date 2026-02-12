@@ -60,11 +60,9 @@ venv.bak/
 models/*.bin
 models/*.model
 
-# Testbench data (user content, not for git)
-testbench/input/*
-testbench/output/*
-!testbench/input/.gitkeep
-!testbench/output/.gitkeep
+# Testbench (test list only)
+testbench/*
+!testbench/STAGE_TEST_CHECKLIST.md
 
 # Test data and outputs (large files and generated outputs)
 # - testdata/videos/: Large test videos (manual placement, or use Git LFS)

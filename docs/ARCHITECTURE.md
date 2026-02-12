@@ -5,179 +5,173 @@
 ## 1. 系统架构
 
 ```mermaid
-flowchart TB
-    subgraph CLI["CLI Layer (cli.py)"]
-        CLI1["命令行参数解析"]
-        CLI2["处理流程编排"]
-        CLI3["进度显示和错误处理"]
-    end
-
-    subgraph CORE["Core Processing Layer"]
-        subgraph VIDEO["Video (video.py)"]
-            V1["视频信息"]
-            V2["关键帧提取"]
-        end
-        
-        subgraph AUDIO["Audio (audio.py)"]
-            A1["音频提取"]
-            A2["格式转换"]
-        end
-        
-        subgraph ASR["ASR (asr.py)"]
-            ASR1["Whisper"]
-            ASR2["繁简转换"]
-            ASR3["分段处理"]
-        end
-        
-        subgraph VISION["Vision (vision.py)"]
-            VIS1["关键帧提取"]
-            VIS2["图片筛选"]
-            VIS3["AI 图像分析"]
-        end
-    end
-
-    subgraph DOC["Document Layer (document.py)"]
-        D1["章节划分"]
-        D2["内容摘要生成"]
-        D3["Markdown 渲染"]
-    end
-
-    subgraph CONFIG["Config Layer (config.py)"]
-        C1["环境变量管理"]
-        C2["配置验证"]
-    end
-
-    CLI --> CORE
-    CORE --> DOC
-    CONFIG --> CLI
-    CONFIG --> CORE
-    CONFIG --> DOC
-```
-
-## 2. 处理流程
-
-```mermaid
 flowchart TD
-    A["输入视频"] --> B["1. 视频分析"]
-    B --> B1["获取时长、分辨率、FPS"]
-    B --> C["2. 音频提取"]
-    C --> C1["提取为 WAV 格式"]
-    C --> D["3. 语音识别"]
-    D --> D1["Whisper 转录"]
-    D1 --> D2["OpenCC 繁简转换"]
-    D --> E["4. 关键帧提取"]
-    E --> E1["场景检测 + 均匀采样"]
-    E --> F["5. 图片筛选"]
+    Input[输入视频]
     
-    subgraph FILTER["筛选策略"]
-        F1["颜色分析 PPT/白板检测"]
-        F2["文字检测 边缘密度"]
-        F3["转录上下文分析"]
+    subgraph Stage1 [Stage 1: 视频分析]
+        S1A[FFmpeg 读取元数据]
+        S1B[OpenCV 场景检测]
     end
     
-    F --> FILTER
-    F --> G["6. AI 图像分析"]
-    G --> G1["Kimi Vision API 分析"]
-    G --> H["7. AI 文档生成"]
-    H --> H1["章节划分 + 摘要生成"]
-    H --> I["输出 Markdown"]
+    subgraph Stage2 [Stage 2: 音频转录 + M1]
+        S2A[FFmpeg 提取音频]
+        S2B[Whisper 语音转录]
+        S2C[OpenCC 繁简转换]
+        S2D[AI 优化为可读文稿]
+    end
+    
+    subgraph Stage3 [Stage 3: 关键帧提取]
+        S3A[场景变化时间点]
+        S3B[固定间隔补充]
+    end
+    
+    subgraph Stage4 [Stage 4: 智能筛选 = M2]
+        S4A[OCR 文字检测]
+        S4B[语义相关性检查]
+        S4C[视觉质量评估]
+    end
+    
+    subgraph Stage5 [Stage 5: AI 图像分析 = M3]
+        S5A[提取原始帧]
+        S5B[Kimi Vision 分析]
+        S5C[生成图片描述]
+    end
+    
+    subgraph Stage6 [Stage 6: 图文融合]
+        S6A[分析 M1 结构]
+        S6B[匹配 M2/M3 配图]
+        S6C[生成章节结构]
+    end
+    
+    subgraph Stage7 [Stage 7: Markdown 渲染]
+        S7A[渲染最终文档]
+        S7B[保存配图文件]
+    end
+    
+    Input --> Stage1
+    Stage1 --> Stage2
+    Stage1 --> Stage3
+    Stage2 --> M1[M1: AI优化文稿]
+    Stage2 --> Stage4
+    Stage3 --> Stage4
+    Stage4 --> M2[M2: 筛选后关键帧]
+    M1 --> Stage5
+    M2 --> Stage5
+    Stage5 --> M3[M3: 配图说明]
+    M1 --> Stage6
+    M2 --> Stage6
+    M3 --> Stage6
+    Stage6 --> Stage7
+    Stage7 --> Output[最终 Markdown]
 ```
 
-## 3. 模块详细设计
+## 2. 模块结构
 
-### 3.1 CLI (cli.py)
+### 2.1 Stage 模块（核心处理）
 
-```python
-class VideoProcessor:
-    def process(self, video_path, output_path, options)
-        # 1. 分析视频
-        # 2. 转录音频
-        # 3. 提取关键帧
-        # 4. 分析图片
-        # 5. 生成文档
-```
+| 文件 | 功能 | 输入 | 输出 |
+|------|------|------|------|
+| `stage1_analyze.py` | 视频分析 | 视频文件 | `VideoInfo` |
+| `stage2_transcribe.py` | 音频转录 + AI优化 | 视频 + `VideoInfo` | `VideoTranscript` (M1) |
+| `stage3_keyframes.py` | 关键帧提取 | 视频 + `VideoInfo` | `KeyFrames` (候选) |
+| `stage4_filter.py` | 智能图片筛选 | `KeyFrames` + M1 | `KeyFrames` (M2) |
+| `stage5_analyze_images.py` | AI图像分析 | M1 + M2 | `ImageDescriptions` (M3) |
+| `stage6_generate.py` | 图文融合 | M1 + M2 + M3 | `Document` |
+| `stage7_render.py` | Markdown渲染 | `Document` + M1 + M3 | `.md` 文件 |
 
-### 3.2 ASR (asr.py)
+### 2.2 支持模块
+
+| 文件 | 功能 |
+|------|------|
+| `cli.py` | 命令行接口，定义 `stage1`~`stage6` 和 `process` 命令 |
+| `config.py` | 配置管理（环境变量、.env、路径解析） |
+| `models.py` | 数据模型（`VideoInfo`, `TranscriptSegment`, `KeyFrame`, 等） |
+
+## 3. 数据模型
+
+### 3.1 核心模型
 
 ```python
 @dataclass
+class VideoInfo:
+    path: Path
+    duration: float          # 秒
+    width: int
+    height: int
+    fps: float
+    scene_changes: list[float]
+
+@dataclass
 class TranscriptSegment:
-    start_time: float    # 开始时间（秒）
-    end_time: float      # 结束时间（秒）
-    text: str           # 文本内容（简体中文）
+    start: float             # 开始时间 (秒)
+    end: float               # 结束时间 (秒)
+    text: str                # 文本内容
 
-class WhisperTranscriber:
-    def transcribe(audio_path) -> list[TranscriptSegment]
-    def to_simplified_chinese(text) -> str  # OpenCC 转换
+@dataclass
+class VideoTranscript:      # M1
+    video_path: Path
+    title: str
+    language: str
+    segments: list[TranscriptSegment]
+    optimized_text: str      # AI 优化后的文稿
+
+@dataclass
+class KeyFrame:
+    timestamp: float         # 时间点 (秒)
+    source: str              # 来源: scene_change / interval / transcript_hint
+    reason: str              # 选择原因
+
+@dataclass
+class KeyFrames:            # M2
+    video_path: Path
+    frames: list[KeyFrame]
+
+@dataclass
+class ImageDescription:
+    timestamp: float
+    image_path: Path
+    description: str         # AI 描述
+    key_elements: list[str]
+    related_transcript: str
+
+@dataclass
+class ImageDescriptions:    # M3
+    descriptions: list[ImageDescription]
+
+@dataclass
+class Chapter:
+    id: int
+    title: str
+    start_time: float
+    end_time: float
+    summary: str
+    key_points: list[str]
+    cleaned_transcript: str
+    visual_timestamp: Optional[float]
+    visual_reason: Optional[str]
+
+@dataclass
+class Document:
+    title: str
+    chapters: list[Chapter]
 ```
 
-### 3.3 Vision (vision.py)
+## 4. 缓存机制
 
-```python
-class ImageAnalyzer:
-    def extract_keyframes(video_path, interval) -> list[Keyframe]
-    
-    def should_analyze_image(image_path, transcript) -> tuple[bool, str]
-        # 1. 检查是否是 PPT/白板（颜色分析）
-        # 2. 检查文字密度（边缘检测）
-        # 3. 检查转录上下文
-        
-    def analyze_with_ai(image_path, context) -> str
-        # 调用 Kimi Vision API
+Stage 2 实现了两级缓存：
+
+```
+test_outputs/temp/cache/stage2/
+└── {video_name}_{hash}_{model}_{lang}_raw.json
 ```
 
-### 3.4 Document (document.py)
+缓存内容：
+- `video_hash`: 视频文件前 1MB 的 SHA256（用于检测视频变化）
+- `segments`: Whisper 原始转录结果
+- `model`: 使用的模型名称
+- `language`: 语言代码
 
-```python
-class DocumentGenerator:
-    def generate(transcript, images) -> str
-        chapters = self.create_chapters(transcript)
-        return self.render_markdown(chapters, images)
-    
-    def create_chapters(transcript) -> list[Chapter]
-        # 使用 Kimi 分析内容，划分章节
-        
-    def render_markdown(chapters, images) -> str
-        # 渲染为 Markdown 格式
-```
-
-## 4. 数据流
-
-### 4.1 转录数据
-
-**数据结构：**
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `start_time` | float | 开始时间（秒） |
-| `end_time` | float | 结束时间（秒） |
-| `text` | str | 文本内容（简体中文） |
-
-**流程：** `Whisper JSON Output` → `TranscriptSegment[]`
-
-### 4.2 关键帧数据
-
-**数据结构：**
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `frame_path` | Path | 帧文件路径 |
-| `timestamp` | float | 时间戳（秒） |
-| `image_type` | str | 图片类型：ppt, whiteboard, speaker 等 |
-| `description` | str | AI 生成的描述 |
-
-### 4.3 章节数据
-
-**数据结构：**
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `title` | str | 章节标题 |
-| `start_time` | float | 开始时间（秒） |
-| `end_time` | float | 结束时间（秒） |
-| `summary` | str | AI 生成的摘要 |
-| `transcript` | str | 原始转录文本 |
-| `images` | list[Keyframe] | 相关图片列表 |
+使用 `--no-cache` 跳过缓存，使用 `--clear-cache` 强制重新转录。
 
 ## 5. 关键设计决策
 
@@ -189,19 +183,36 @@ class DocumentGenerator:
   - AI 章节划分基于文字内容
   - 图片仅用于补充文字无法表达的信息
 
-### 5.2 智能图片筛选
+### 5.2 Prompt 文件化
+
+所有 AI Prompt 提取到 `prompts/` 目录：
+- `transcript_optimization.md` - Stage 2c: 文稿优化
+- `image_analysis.md` - Stage 5: 图像分析  
+- `document_merge.md` - Stage 6: 图文融合
+
+使用 YAML Frontmatter 定义参数：
+```yaml
+---
+name: transcript-optimization
+version: "1.0.0"
+models: [kimi-k2.5]
+parameters:
+  temperature: 1
+variables: [title, raw_text]
+---
+```
+
+### 5.3 智能图片筛选
 
 **目的**：减少不必要的 API 调用，降低成本和时间
 
-**策略**：
-
 | 筛选层级 | 方法 | 节省率 |
 |---------|------|-------|
-| 第一层 | 颜色分析（检测 PPT/白板） | 30% |
-| 第二层 | 文字密度检测（OpenCV） | 20% |
-| 第三层 | 转录上下文分析 | 20% |
+| 第一层 | 时间戳去重 | 20% |
+| 第二层 | OCR 文字检测 | 30% |
+| 第三层 | 语义相关性检查 | 20% |
 
-### 5.3 模型选择
+### 5.4 模型选择
 
 | 用途 | 模型 | 理由 |
 |-----|------|------|
@@ -209,49 +220,19 @@ class DocumentGenerator:
 | 文本生成 | kimi-k2.5 | 中文理解能力强、上下文长 |
 | 图像理解 | kimi-k2.5 | 支持视觉、性价比高 |
 
-### 5.4 错误处理策略
+### 5.5 错误处理策略
 
 - **可恢复错误**：跳过当前步骤，继续处理（如单张图片分析失败）
 - **关键错误**：终止处理，返回错误信息（如视频文件不存在）
 - **降级策略**：如果 AI 服务不可用，仍输出基础转录和关键帧
 
-## 6. 扩展性设计
-
-### 6.1 添加新的 ASR 提供商
-
-```python
-# asr.py
-class BaseTranscriber(ABC):
-    @abstractmethod
-    def transcribe(self, audio_path) -> list[TranscriptSegment]:
-        pass
-
-class WhisperTranscriber(BaseTranscriber): ...
-class OpenAITranscriber(BaseTranscriber): ...
-class AzureTranscriber(BaseTranscriber): ...  # 新增
-```
-
-### 6.2 添加新的输出格式
-
-```python
-# document.py
-class BaseRenderer(ABC):
-    @abstractmethod
-    def render(self, chapters) -> str:
-        pass
-
-class MarkdownRenderer(BaseRenderer): ...
-class PDFRenderer(BaseRenderer): ...  # 新增
-class WordRenderer(BaseRenderer): ...  # 新增
-```
-
-## 7. 配置体系
+## 6. 配置体系
 
 配置优先级（从高到低）：
 
 1. **命令行参数**
    ```bash
-   video2md process --keyframe-interval 60
+   uv run python -m video2markdown process --keyframe-interval 60
    ```
 
 2. **环境变量**
@@ -266,3 +247,55 @@ class WordRenderer(BaseRenderer): ...  # 新增
 
 4. **默认值**
    - 代码中定义的默认值
+
+## 7. 扩展性设计
+
+### 7.1 添加新的 Stage
+
+Stage 设计遵循统一接口：
+
+```python
+def stageX_process(input_data: InputType, ...) -> OutputType:
+    """Stage X: 处理描述.
+    
+    输入: ...
+    输出: ...
+    """
+    print(f"[Stage X] 处理...")
+    # 处理逻辑
+    return output
+```
+
+### 7.2 添加新的 ASR 提供商
+
+在 `stage2_transcribe.py` 中扩展：
+
+```python
+def transcribe_audio(audio_path: Path, model_path: Path, language: str) -> list[TranscriptSegment]:
+    if settings.asr_provider == "local":
+        return _transcribe_with_whisper(audio_path, model_path, language)
+    elif settings.asr_provider == "openai":
+        return _transcribe_with_openai(audio_path, language)
+    # 新增
+    elif settings.asr_provider == "azure":
+        return _transcribe_with_azure(audio_path, language)
+```
+
+### 7.3 添加新的输出格式
+
+在 `stage7_render.py` 中扩展：
+
+```python
+def render_document(document: Document, format: str = "markdown") -> str:
+    if format == "markdown":
+        return _render_markdown(document)
+    elif format == "html":
+        return _render_html(document)
+    # 新增
+    elif format == "pdf":
+        return _render_pdf(document)
+```
+
+---
+
+*最后更新: 2026-02-12 - 更新为 7-Stage 架构*
