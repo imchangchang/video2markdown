@@ -105,16 +105,18 @@ get_duration() {
 }
 
 # 辅助函数：预估处理时间（基于视频时长）
-# 预估模型：基础60秒 + 每分钟视频240秒（4倍）+ 50%余量
+# 基于两轮测试数据优化（实际耗时约为视频时长的 1.5x ~ 3.0x）
+# 新公式：基础60秒 + 视频时长×2 + 100%余量 = 视频时长×4 + 60
+# 范围：5分钟 ~ 1小时
 estimate_time() {
     local duration="$1"
-    local minutes=$((duration / 60))
-    # 基础60s + 每分钟240s，然后×1.5余量，最少600s(10m)，最多7200s(2h)
-    local estimate=$(( (60 + minutes * 240) * 15 / 10 ))
-    if [ $estimate -lt 600 ]; then
-        estimate=600
-    elif [ $estimate -gt 7200 ]; then
-        estimate=7200
+    # 新公式：视频时长 × 4 + 60秒基础
+    local estimate=$(( duration * 4 + 60 ))
+    # 限制范围：最少300s(5m)，最多3600s(1h)
+    if [ $estimate -lt 300 ]; then
+        estimate=300
+    elif [ $estimate -gt 3600 ]; then
+        estimate=3600
     fi
     echo "$estimate"
 }
@@ -211,13 +213,16 @@ cat >> "$SUMMARY_FILE" << EOF
 
 ## 超时机制说明
 
-本次测试使用**动态超时机制**：
+本次测试使用**动态超时机制**（基于两轮实测数据优化）：
 - 基础时间：60秒
-- 系数：每分钟视频增加240秒（4倍）
-- 余量：×1.5
-- 范围：最少10分钟，最多2小时
+- 视频时长系数：×4（实测平均为 1.5x ~ 3.0x）
+- 范围：最少5分钟，最多1小时
 
-公式：超时 = max(600, min(7200, (60 + 分钟×240) × 1.5))
+公式：超时 = max(300, min(3600, 视频秒数×4 + 60))
+
+优化依据：
+- 第一轮测试（无缓存）：实际耗时/视频时长 = 1.4x ~ 3.0x
+- 第二轮测试（有缓存）：实际耗时/视频时长 = 1.1x ~ 2.8x
 
 ## 详细日志
 
@@ -226,13 +231,79 @@ cat >> "$SUMMARY_FILE" << EOF
 $OUTPUT_DIR/<视频名>/processing.log
 \`\`\`
 
+## AI API 用量汇总
+
+| 视频 | API调用 | Token用量(输入/输出/总计) | 费用 |
+|-----|--------|------------------------|-----|
+EOF
+
+# 初始化汇总变量
+total_api_calls=0
+total_input_tokens=0
+total_output_tokens=0
+
+# 从每个视频的 processing.log 中提取统计信息
+for video_path in "${video_list[@]}"; do
+    video_name=$(basename "$video_path")
+    video_stem="${video_name%.*}"
+    log_file="$OUTPUT_DIR/$video_stem/processing.log"
+    
+    if [ -f "$log_file" ] && grep -q "📊 AI API 用量汇总" "$log_file" 2>/dev/null; then
+        # 从汇总行提取数据
+        summary_line=$(grep "📊 AI API 用量汇总" -A3 "$log_file" 2>/dev/null | grep "Token 用量")
+        api_calls=$(grep "API 调用" "$log_file" 2>/dev/null | tail -1 | grep -oP '\d+' | head -1)
+        
+        # 提取输入/输出/总计 token
+        input_tok=$(echo "$summary_line" | grep -oP '\d+(?=\s*输入)' | sed 's/,//g' | head -1)
+        output_tok=$(echo "$summary_line" | grep -oP '\d+(?=\s*输出)' | sed 's/,//g' | head -1)
+        total_tok=$(echo "$summary_line" | grep -oP '\d+(?=\s*总计)' | sed 's/,//g' | head -1)
+        
+        # 提取费用
+        cost_line=$(grep "预估费用" "$log_file" 2>/dev/null | tail -1)
+        cost=$(echo "$cost_line" | grep -oP '(?<=¥)[0-9.]+' | head -1)
+        
+        # 累加到总计
+        [ -n "$api_calls" ] && total_api_calls=$((total_api_calls + api_calls))
+        [ -n "$input_tok" ] && total_input_tokens=$((total_input_tokens + input_tok))
+        [ -n "$output_tok" ] && total_output_tokens=$((total_output_tokens + output_tok))
+        
+        # 格式化显示
+        [ -z "$api_calls" ] && api_calls="0"
+        [ -z "$input_tok" ] && input_tok="0"
+        [ -z "$output_tok" ] && output_tok="0"
+        [ -z "$total_tok" ] && total_tok="0"
+        [ -z "$cost" ] && cost="N/A"
+        
+        echo "| $video_stem | $api_calls | $input_tok / $output_tok / $total_tok | ¥$cost |" >> "$SUMMARY_FILE"
+    else
+        echo "| $video_stem | - | - | - |" >> "$SUMMARY_FILE"
+    fi
+done
+
+# 计算总费用
+total_tokens=$((total_input_tokens + total_output_tokens))
+if command -v python3 &> /dev/null; then
+    total_cost=$(python3 -c "print(f'{( $total_input_tokens * 4.8 / 1000000 + $total_output_tokens * 20 / 1000000 ):.4f}')")
+else
+    total_cost="N/A"
+fi
+
+echo "| **总计** | **$total_api_calls** | **$total_input_tokens / $total_output_tokens / $total_tokens** | **¥$total_cost** |" >> "$SUMMARY_FILE"
+
+cat >> "$SUMMARY_FILE" << EOF
+
+> 价格标准：Kimi K2.5 (2025-02)
+> - 输入: ¥4.8 / 百万 tokens
+> - 输出: ¥20 / 百万 tokens
+
 ## 生成文件
 
 每个视频目录包含：
 - \`<视频名>.md\` - 最终 Markdown 文档
 - \`<视频名>_word.md\` - AI 优化文稿
 - \`<视频名>.srt\` - 字幕文件
-- \`<视频名>_frames/\` - 关键帧图片
+- \`images/\` - 关键配图（统一存放）
+- \`temp/\` - 中间产物
 EOF
 
 echo -e "${BLUE}========================================${NC}"

@@ -113,7 +113,7 @@ def generate_document(
 
 
 def _print_usage_info(response) -> None:
-    """打印 API 用量和价格信息."""
+    """打印 API 用量和价格信息，并更新全局统计."""
     if not hasattr(response, 'usage') or response.usage is None:
         return
     
@@ -124,6 +124,10 @@ def _print_usage_info(response) -> None:
     
     if total_tokens == 0:
         return
+    
+    # 更新全局统计
+    from video2markdown.stats import get_stats
+    get_stats().add(prompt_tokens, completion_tokens)
     
     # Kimi K2.5 价格 (2025-02)
     # 输入: ¥4.8 / 百万 tokens (约 $0.60)

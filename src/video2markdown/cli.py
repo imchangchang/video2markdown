@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from video2markdown.config import settings
+from video2markdown.stats import get_stats, reset_stats
 
 
 @click.group()
@@ -226,6 +227,10 @@ def process(video_path: Path, output: Path, language: str):
     from video2markdown.stage5_analyze_images import analyze_images
     from video2markdown.stage6_generate import generate_document
     from video2markdown.stage7_render import render_markdown
+    from video2markdown.stats import get_stats, reset_stats
+    
+    # 重置统计
+    reset_stats()
     
     output_dir = output or settings.output_dir
     
@@ -276,6 +281,12 @@ def process(video_path: Path, output: Path, language: str):
     # Stage 7
     click.echo("=" * 50)
     result_path = render_markdown(document, transcript, descriptions, output_dir)
+    
+    # 打印全局统计
+    click.echo()
+    click.echo("=" * 50)
+    stats = get_stats()
+    click.echo(stats.summary())
     
     click.echo()
     click.echo("✅ 处理完成!")
