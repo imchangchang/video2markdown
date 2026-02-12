@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     scene_threshold: float = Field(default=0.3)
     
     # 路径
-    output_dir: Path = Field(default=PROJECT_ROOT / "testbench" / "output")
-    temp_dir: Path = Field(default=PROJECT_ROOT / "testbench" / "output" / "temp")
+    output_dir: Path = Field(default=PROJECT_ROOT / "test_outputs" / "results")
+    temp_dir: Path = Field(default=PROJECT_ROOT / "test_outputs" / "temp")
     prompts_dir: Path = Field(default=PROJECT_ROOT / "prompts")
 
     def get_client_kwargs(self) -> dict:

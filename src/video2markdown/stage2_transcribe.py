@@ -65,32 +65,44 @@ def transcribe_with_whisper(
     """
     print(f"  转录音频 (使用 {model_path.name})...")
     
-    # 确定输出路径 (whisper.cpp 会自动添加 .json)
-    output_json = audio_path.with_suffix(".wav.json")
-    
-    # 查找 whisper-cpp 可执行文件
+    # 查找 whisper-cli 可执行文件
     whisper_cpp = _find_whisper_cli()
+    
+    # 使用输出目录存放临时结果
+    output_dir = audio_path.parent
+    output_name = audio_path.stem
+    output_json = output_dir / f"{output_name}.json"
     
     cmd = [
         str(whisper_cpp),
         "-m", str(model_path),
         "-f", str(audio_path),
         "-oj",  # 输出 JSON
-        "-of", str(audio_path.with_suffix("")),  # 输出前缀
+        "-of", str(output_dir / output_name),  # 输出前缀 (不含扩展名)
         "-l", language,
     ]
     
     print(f"    运行: {' '.join(cmd[:6])}...")
-    subprocess.run(cmd, check=True, capture_output=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     
-    # 解析输出
+    if result.returncode != 0:
+        print(f"  错误输出: {result.stderr}")
+        raise RuntimeError(f"whisper-cli 执行失败: {result.returncode}")
+    
+    # 解析输出 (whisper 可能输出不同命名的文件)
     if not output_json.exists():
-        # 尝试替代路径
-        alt_json = Path(str(audio_path) + ".json")
-        if alt_json.exists():
-            output_json = alt_json
+        # 尝试其他可能的文件名
+        candidates = [
+            audio_path.with_suffix(".json"),
+            Path(str(audio_path) + ".json"),
+            output_dir / f"{output_name}.wav.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                output_json = candidate
+                break
         else:
-            raise FileNotFoundError(f"转录输出文件不存在: {output_json}")
+            raise FileNotFoundError(f"转录输出文件不存在，尝试过的路径: {candidates}")
     
     import json
     with open(output_json, "r") as f:
