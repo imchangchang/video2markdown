@@ -7,20 +7,22 @@
 # === 方法论（最优先）===
 vibe-coding/*
 
-# === 开发工作流 ===
-dev-workflow/git-commits          # Git 提交规范
-dev-workflow/quality-gates        # 质量门禁
-dev-workflow/bash-scripting       # Bash 脚本技巧（来自本项目实践）
+# === 工作流 ===
+workflow/git                      # Git 提交规范
+workflow/quality-gates            # 质量门禁
 
-# === 软件开发 ===
-software/python-dev               # Python 开发规范
-software/python-cli               # CLI 开发
-software/python-pipeline          # Python 流水线设计（来自本项目实践）
-software/ai-api-integration       # AI API 集成（强制 Prompt 文件化）
-software/ai-prompt-engineering    # Prompt 工程（来自本项目实践）
-software/opencv-video             # OpenCV 视频处理（来自本项目实践）
-software/whisper-asr              # Whisper 语音识别（来自本项目实践）
-software/video-processing         # 视频处理通用
+# === 编程语言 ===
+languages/bash                    # Bash 脚本技巧
+languages/python/core             # Python 开发规范
+languages/python/cli              # CLI 开发
+languages/python/pipeline         # Python 流水线设计（来自本项目实践）
 
-# === 架构设计 ===
-design-patterns/video2markdown-architecture  # 7-Stage Pipeline 架构（来自本项目实践）
+# === 领域专用 ===
+domains/ai/api-integration        # AI API 集成
+domains/ai/prompt-engineering     # Prompt 工程（来自本项目实践）
+domains/ai/whisper-asr            # Whisper 语音识别（来自本项目实践）
+domains/multimedia/opencv         # OpenCV 视频处理（来自本项目实践）
+domains/multimedia/video-processing  # 视频处理通用
+
+# === 架构模式 ===
+patterns/pipeline/architecture    # 7-Stage Pipeline 架构（来自本项目实践）
