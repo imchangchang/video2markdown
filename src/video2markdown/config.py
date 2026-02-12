@@ -1,5 +1,12 @@
-"""Configuration management for Video2Markdown."""
+"""Configuration management.
 
+按优先级读取配置:
+1. 环境变量 (KIMI_*)
+2. .env 文件
+3. 默认值
+"""
+
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -7,8 +14,28 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def get_project_root() -> Path:
+    """获取项目根目录."""
+    # 从环境变量
+    if root := os.environ.get("VIDEO2MD_ROOT"):
+        return Path(root)
+    
+    # 从当前工作目录向上查找
+    current = Path.cwd()
+    for path in [current, *current.parents]:
+        if (path / ".env").exists() or (path / "prompts").exists():
+            return path
+    
+    # 从本文件位置推导
+    this_file = Path(__file__).resolve()
+    return this_file.parent.parent.parent
+
+
+PROJECT_ROOT = get_project_root()
+
+
 class Settings(BaseSettings):
-    """Application settings."""
+    """应用配置."""
 
     model_config = SettingsConfigDict(
         env_prefix="KIMI_",
@@ -16,161 +43,53 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
-    # API Configuration
-    api_key: str = Field(..., description="Kimi API key")
-    base_url: str = Field(
-        default="https://api.moonshot.cn/v1",
-        description="Kimi API base URL",
-    )
-    model: str = Field(
-        default="kimi-k2.5",
-        description="Default model for text generation",
-    )
-    vision_model: str = Field(
-        default="kimi-k2.5",
-        description="Model for vision tasks",
-    )
+    # API 配置
+    api_key: str = Field(..., description="Kimi API Key")
+    base_url: str = Field(default="https://api.moonshot.cn/v1")
+    model: str = Field(default="kimi-k2.5")
+    vision_model: str = Field(default="kimi-k2.5")
 
-    # Video Processing
-    scene_threshold: float = Field(
-        default=0.4,
-        ge=0.0,
-        le=1.0,
-        description="Scene change detection threshold (higher = fewer scenes)",
-    )
-    min_scene_duration: float = Field(
-        default=1.0,
-        ge=0.0,
-        description="Minimum scene duration in seconds",
-    )
-    max_keyframes: int = Field(
-        default=20,
-        ge=1,
-        le=200,
-        description="Maximum number of keyframes to extract",
-    )
-    frame_quality: int = Field(
-        default=85,
-        ge=1,
-        le=100,
-        description="JPEG quality for extracted frames",
-    )
+    # Whisper 配置
+    whisper_model: str = Field(default="base", description="模型名称或路径")
+    whisper_language: str = Field(default="zh")
 
-    # Audio Processing
-    audio_sample_rate: int = Field(
-        default=16000,
-        description="Audio sample rate for ASR",
-    )
-    audio_format: str = Field(
-        default="wav",
-        description="Audio format for extraction",
-    )
+    # 处理参数
+    keyframe_interval: float = Field(default=30.0)
+    scene_threshold: float = Field(default=0.3)
     
-    # Whisper ASR Configuration
-    asr_provider: str = Field(
-        default="local",
-        description="ASR provider: local, openai, or kimi",
-    )
-    whisper_api_key: Optional[str] = Field(
-        default=None,
-        description="OpenAI API key for Whisper (defaults to KIMI_API_KEY)",
-    )
-    whisper_base_url: str = Field(
-        default="https://api.openai.com/v1",
-        description="Whisper API base URL",
-    )
-    whisper_model: str = Field(
-        default="whisper-1",
-        description="Whisper API model name",
-    )
-    whisper_local_model: str = Field(
-        default="base",
-        description="Local Whisper model size: tiny, base, small, medium, large",
-    )
-    whisper_language: Optional[str] = Field(
-        default="zh",
-        description="Language code for Whisper transcription",
-    )
-
-    # Image Processing
-    max_image_size: int = Field(
-        default=1024,
-        ge=256,
-        le=2048,
-        description="Max dimension for images sent to API",
-    )
-    blur_threshold: float = Field(
-        default=100.0,
-        ge=0.0,
-        description="Blur detection threshold (lower is blurrier)",
-    )
-
-    # Output
-    temp_dir: Path = Field(
-        default=Path("./testbench/output/temp"),
-        description="Temporary directory for processing",
-    )
-    output_dir: Path = Field(
-        default=Path("./testbench/output"),
-        description="Default output directory",
-    )
-
-    # Prompt Configuration
-    prompts_dir: Path = Field(
-        default=Path("./prompts"),
-        description="Directory containing prompt template files",
-    )
-    prompt_document_generation: str = Field(
-        default="document_generation.md",
-        description="Filename for document generation prompt",
-    )
-    prompt_image_analysis: str = Field(
-        default="image_analysis.md",
-        description="Filename for image analysis prompt",
-    )
-    prompt_text_cleaning: str = Field(
-        default="text_cleaning.md",
-        description="Filename for text cleaning prompt",
-    )
-
-    # Concurrency
-    max_workers: int = Field(
-        default=4,
-        ge=1,
-        le=10,
-        description="Maximum concurrent workers for API calls",
-    )
-    request_timeout: int = Field(
-        default=120,
-        ge=10,
-        description="API request timeout in seconds",
-    )
-
-    def get_prompt(self, prompt_name: str) -> str:
-        """Load prompt content from file.
-        
-        Args:
-            prompt_name: Name of the prompt file (e.g., 'document_generation.md')
-            
-        Returns:
-            Prompt content as string
-            
-        Raises:
-            FileNotFoundError: If prompt file not found
-        """
-        prompt_path = self.prompts_dir / prompt_name
-        if not prompt_path.exists():
-            raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
-        return prompt_path.read_text(encoding="utf-8")
+    # 路径
+    output_dir: Path = Field(default=PROJECT_ROOT / "testbench" / "output")
+    temp_dir: Path = Field(default=PROJECT_ROOT / "testbench" / "output" / "temp")
 
     def get_client_kwargs(self) -> dict:
-        """Get kwargs for OpenAI client initialization."""
+        """获取 OpenAI 客户端参数."""
         return {
             "api_key": self.api_key,
             "base_url": self.base_url,
-            "timeout": self.request_timeout,
         }
 
+    def resolve_whisper_model(self) -> Optional[Path]:
+        """解析 Whisper 模型路径."""
+        model = self.whisper_model
+        
+        # 如果是完整路径且存在
+        path = Path(model)
+        if path.exists() and path.is_file():
+            return path.resolve()
+        
+        # 尝试常见位置
+        candidates = [
+            PROJECT_ROOT / model,
+            PROJECT_ROOT / "whisper.cpp" / "models" / model,
+            PROJECT_ROOT / "whisper.cpp" / "models" / f"ggml-{model}.bin",
+            PROJECT_ROOT / "whisper.cpp" / "models" / f"for-tests-ggml-{model}.bin",
+        ]
+        
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate.resolve()
+        
+        return None
 
-# Global settings instance
+
 settings = Settings()

@@ -4,48 +4,49 @@
 
 ```mermaid
 flowchart TD
-    Input[输入视频] --> S1[Stage 1: 视频分析]
-    S1 --> S2[Stage 2: 音频提取与转录]
-    S2 --> S3[Stage 3: 关键帧提取]
-    S3 --> S4[Stage 4: 智能图片筛选]
-    S4 --> S5[Stage 5: AI 图像分析]
-    S5 --> S6[Stage 6: AI 文档生成]
+    Input[输入视频]
+    %% 关键阶段
+    S1[Stage 1: 视频分析]
+    S2[Stage 2: 音频提取与文字稿转化]
+    S3[Stage 3: 关键帧提取]
+    S4[Stage 4: 智能图片筛选]
+    S5[Stage 5: AI 图像分析]
+    S6[Stage 6: AI 文档生成]
+    %% 中间成果，需要保留来确认各环节工作是否符合预期
+    M1[视频文稿</br>无配图，附带时间戳和视频文字稿]
+    M2[关键配图]
+    M3[关键配图的文字说明]
+
+    Input --> S1
+    S1 --> S2
+    S2 ---> |AI分析优化</br>转换成更适合阅读的形式|M1
+    S2 --> |根据文字稿提取关键时间点|S3
+    S1 --> |根据视频变化提取关键时间点|S3
+    S3 --> S4
+    S4 --> |根据时间戳提取图像|M2
+    M2 --> S5--->M3
+
+    M1 --> S6
+    M2 --> |原始视频中的原图, 不要压缩之后的|S6
+    M3 --> S6
+
     S6 --> S7[Stage 7: Markdown 渲染]
     S7 --> Output[输出文件]
 
-    subgraph Stage1 [Stage 1: 视频分析]
-        S1_Detail["• 读取视频元数据 (FFmpeg)  - 时长、分辨率、帧率、编码格式• 评估处理参数  - 关键帧采样间隔  - 预估处理时间"]
-    end
-
-    subgraph Stage2 [Stage 2: 音频提取与转录]
-        S2A["提取音频<br>(WAV)"] --> S2B["Whisper<br>转录"] --> S2C["繁简转换<br>(OpenCC)"]
-        S2A_Detail["• FFmpeg<br>• 16kHz<br>• 单声道"] -.-> S2A
-        S2B_Detail["• 本地模型<br>• 时间戳<br>• 分段文本"] -.-> S2B
-        S2C_Detail["• 繁体中文<br>• 转简体中文<br>• 保持一致性"] -.-> S2C
-        S2_Output["输出: TranscriptSegment[]<br>- start_time: float (秒)<br>- end_time: float (秒)<br>- text: str (简体中文)"]
-        S2C --> S2_Output
-    end
-
-    subgraph Stage3 [Stage 3: 关键帧提取]
-        S3A["场景检测<br>(OpenCV)"] --> S3C["合并筛选<br>去重排序"]
-        S3B["均匀采样<br>(按间隔)"] --> S3C
-        S3A_Detail["• 帧差分析<br>• 检测转场<br>• 标记场景"] -.-> S3A
-        S3B_Detail["• 固定间隔<br>• 兜底策略<br>• 确保覆盖"] -.-> S3B
-        S3C_Detail["• 时间排序<br>• 质量筛选<br>• 限制数量"] -.-> S3C
-    end
-
     subgraph Stage4 [Stage 4: 智能图片筛选]
-        S4_Title["多层筛选策略 (减少 50-70% API 调用)"]
-        S4A["第一层<br>颜色分析"] --> S4B["第二层<br>文字检测"] --> S4C["第三层<br>转录上下文"]
-        S4A_Detail["• 检测白色背景<br>• PPT/白板判定<br>跳过率: 30%"] -.-> S4A
-        S4B_Detail["• 边缘检测<br>• 文字密度<br>跳过率: 20%"] -.-> S4B
-        S4C_Detail["• 检查对应时段<br>  转录内容<br>• 是否提及视觉内容<br>跳过率: 20%"] -.-> S4C
-        S4_Result["判定结果:<br>✅ 分析: 检测到PPT/板书类图片<br>⏭️ 跳过: 无显著文字内容"]
+        S4_Title["多层筛选策略"]
+
+        S4A_Detail["时间戳分析去重,整理出关键需要进行图像分析的时间点"] 
+            --> S4B["第二层<br>文字检测"] --> S4C["第三层<br>转录上下文"]
+        S4B_Detail["• 边缘检测<br>• 文字密度] -.-> S4B
+        S4C_Detail["• 检查对应时段<br>  转录内容<br>• 是否提及视觉内容] -.-> S4C
+
+        S4_Result["判定结果:<br> 分析: 检测到PPT/板书类图片/视频中可能重要的演示部分/插图<br> 跳过: 无显著文字内容"]
         S4C --> S4_Result
     end
 
     subgraph Stage5 [Stage 5: AI 图像分析]
-        S5_Input["输入: 筛选后的关键帧 (通常 5-15 张)"]
+        S5_Input["输入:Stage 4 智能图片筛选 输出的关键配图"]
         S5A["图片编码<br>(Base64)"] --> S5B["Kimi API<br>调用"] --> S5C["内容描述"]
         S5A_Detail["• JPG格式<br>• 质量85%<br>• 尺寸限制"] -.-> S5A
         S5B_Detail["• 压缩优化<br>• 中文提示<br>• 重试机制"] -.-> S5B
@@ -54,35 +55,14 @@ flowchart TD
         S5_Input --> S5A
     end
 
-    subgraph Stage6 [Stage 6: AI 文档生成]
-        S6_Input["输入: 转录文本 + 图片分析结果"]
-        S6A[1. 内容理解] --> S6B[2. 章节划分] --> S6C[3. 摘要生成] --> S6D[4. 图片关联]
-        S6A_Detail["• 分析转录文本主题<br>• 识别内容结构和逻辑"] -.-> S6A
-        S6B_Detail["• 自动识别主题转换点<br>• 生成 3-6 个章节<br>• 确定每章时间范围"] -.-> S6B
-        S6C_Detail["• 每章生成中文摘要<br>• 提取核心观点和关键信息"] -.-> S6C
-        S6D_Detail["• 将图片匹配到对应章节<br>• 根据内容选择最相关的图片"] -.-> S6D
-        S6_Time["耗时: 约 20-40 秒"]
-        S6_Input --> S6A
-    end
-
-    subgraph Stage7 [Stage 7: Markdown 渲染]
-        S7_Output["输出结构:<br><br>视频标题<br><br>目录<br>1. 章节1<br>2. 章节2<br>...<br><br>1. 章节标题<br>时间: [00:00:00 - 00:05:00]<br><br>AI生成的内容摘要...<br><br>相关画面:<br>时间戳图片<br>AI图片描述<br><br>原始转录文字(可折叠)<br>转录内容..."]
-    end
 
     subgraph OutputFiles [输出文件]
-        OF1["• {title}.md - 主文档"]
-        OF2["• {title}_summary.md - 视频摘要"]
-        OF3["• {title}.srt - 字幕文件"]
-        OF4["• {title}_frames/ - 关键帧图片目录"]
+        OF1["• {title}/{title}.md - 最终文档"]
+        OF2["• {title}/{title}_word.md - 视频文字稿"]
+        OF3["• {title}/{title}.srt - 原始转录文稿"]
+        OF4["• {title}/{title}_frames/ - 关键配图以及关键配图的文字说明"]
     end
 
-    S1 --> Stage1
-    Stage2 --> S3
-    Stage3 --> S4
-    Stage4 --> S5
-    Stage5 --> S6
-    Stage6 --> S7
-    Stage7 --> OutputFiles
 ```
 
 ## 详细处理时间分析

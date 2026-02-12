@@ -1,6 +1,6 @@
 [project]
 name = "video2markdown"
-version = "0.1.0"
+version = "2.0.0"
 description = "Convert videos to Markdown documents with AI-powered image understanding"
 readme = "README.md"
 license = {text = "MIT"}
@@ -40,7 +40,7 @@ dev = [
 ]
 
 [project.scripts]
-video2md = "video2markdown.cli:main_entry"
+video2md = "video2markdown.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
