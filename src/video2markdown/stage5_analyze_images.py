@@ -117,6 +117,23 @@ def _prepare_for_api(image_path: Path, max_size: int) -> Path:
     return temp_path
 
 
+def _load_prompt_with_meta(template_path: Path):
+    """加载 prompt 模板，返回 (system_msg, user_template, api_params)."""
+    import yaml
+    
+    content = template_path.read_text(encoding="utf-8")
+    
+    # 解析 YAML frontmatter
+    _, frontmatter, body = content.split("---", 2)
+    metadata = yaml.safe_load(frontmatter)
+    
+    system_msg = metadata.get("system", "你是一位专业的视频内容分析师。")
+    api_params = metadata.get("parameters", {})
+    user_template = body.strip()
+    
+    return system_msg, user_template, api_params
+
+
 def _analyze_single_image(
     client: OpenAI,
     image_path: Path,
@@ -130,22 +147,19 @@ def _analyze_single_image(
     with open(image_path, "rb") as f:
         image_data = base64.b64encode(f.read()).decode("utf-8")
     
-    # 构建提示
-    system_prompt = """你是一位专业的视频内容分析师。请分析这张视频截图，并用简体中文描述。
-
-请提供：
-1. 画面主要内容描述（简洁，2-3句话）
-2. 关键元素列表（如文字、图表、界面元素等）
-
-如果是无关画面（纯风景、黑屏、过渡动画），请在描述开头标注[无关]。"""
-
-    user_content = f"视频上下文（该截图出现在以下内容的时段）:\n{context[:500]}\n\n请分析这张截图与上述内容的关联。"
+    # 加载 prompt 模板
+    prompt_path = settings.prompts_dir / "image_analysis.md"
+    if not prompt_path.exists():
+        raise FileNotFoundError(f"Prompt 文件不存在: {prompt_path}")
+    
+    system_msg, user_template, api_params = _load_prompt_with_meta(prompt_path)
+    user_content = user_template.format(context=context[:500])
     
     # 调用 API
     response = client.chat.completions.create(
         model=settings.vision_model,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": [
                 {"type": "text", "text": user_content},
                 {"type": "image_url", "image_url": {
@@ -153,7 +167,7 @@ def _analyze_single_image(
                 }}
             ]}
         ],
-        temperature=1,
+        **api_params,
     )
     
     content = response.choices[0].message.content

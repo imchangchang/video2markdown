@@ -51,20 +51,27 @@ def generate_document(
     
     print(f"  调用 AI 融合 M1 + M2 + M3...")
     
+    # 加载 prompt 模板
+    prompt_path = settings.prompts_dir / "document_merge.md"
+    if not prompt_path.exists():
+        raise FileNotFoundError(f"Prompt 文件不存在: {prompt_path}")
+    
+    system_msg, _, api_params = _load_prompt_with_meta(prompt_path)
+    
     # 调用 AI - 任务是在 M1 的合适位置插入配图
     response = client.chat.completions.create(
         model=settings.model,
         messages=[
             {
                 "role": "system", 
-                "content": _get_merge_prompt()
+                "content": system_msg
             },
             {
                 "role": "user",
                 "content": json.dumps(input_data, ensure_ascii=False)
             }
         ],
-        temperature=1,
+        **api_params,
     )
     
     # 解析响应
