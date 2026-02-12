@@ -1,9 +1,0 @@
-# Markdown to PDF Converter Dependencies
-# Install with: pip install -r requirements.txt
-
-# Core dependencies
-markdown>=3.4.0
-weasyprint>=59.0
-
-# Optional: For better font handling on Windows
-# fonttools>=4.38.0
