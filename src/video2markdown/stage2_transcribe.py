@@ -150,7 +150,7 @@ def optimize_transcript(
             {"role": "system", "content": "你是一位专业的文稿编辑，擅长将口语化转录转换为正式阅读文稿。"},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.7,
+        temperature=1,  # kimi-k2.5 only supports temperature=1
     )
     
     optimized = response.choices[0].message.content.strip()
