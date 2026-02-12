@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     vision_model: str = Field(default="kimi-k2.5")
 
     # Whisper 配置
-    whisper_model: str = Field(default="base", description="模型名称或路径")
+    whisper_model: str = Field(default="base", description="Whisper 模型名称 (tiny/base/small/medium) 或完整路径")
     whisper_language: str = Field(default="zh")
 
     # 处理参数
@@ -69,7 +69,14 @@ class Settings(BaseSettings):
         }
 
     def resolve_whisper_model(self) -> Optional[Path]:
-        """解析 Whisper 模型路径."""
+        """解析 Whisper 模型路径.
+        
+        搜索顺序:
+        1. 直接路径（如 models/ggml-medium-q8_0.bin）
+        2. models/ggml-{model}.bin
+        3. models/ggml-{model}-q8_0.bin（量化版本）
+        4. whisper.cpp/models/ 下的相应文件
+        """
         model = self.whisper_model
         
         # 如果是完整路径且存在
@@ -77,11 +84,18 @@ class Settings(BaseSettings):
         if path.exists() and path.is_file():
             return path.resolve()
         
-        # 尝试常见位置
+        # 尝试常见位置（多种命名格式）
         candidates = [
+            # 直接路径
             PROJECT_ROOT / model,
+            # models/ 目录（项目根目录）
+            PROJECT_ROOT / "models" / model,
+            PROJECT_ROOT / "models" / f"ggml-{model}.bin",
+            PROJECT_ROOT / "models" / f"ggml-{model}-q8_0.bin",  # 量化版本
+            # whisper.cpp/models/ 目录
             PROJECT_ROOT / "whisper.cpp" / "models" / model,
             PROJECT_ROOT / "whisper.cpp" / "models" / f"ggml-{model}.bin",
+            PROJECT_ROOT / "whisper.cpp" / "models" / f"ggml-{model}-q8_0.bin",
             PROJECT_ROOT / "whisper.cpp" / "models" / f"for-tests-ggml-{model}.bin",
         ]
         
