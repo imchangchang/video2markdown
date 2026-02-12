@@ -1,0 +1,12 @@
+{
+  "title": "Sample Test Video",
+  "filename": "sample_test.mp4",
+  "duration": 30.0,
+  "width": 1920,
+  "height": 1080,
+  "fps": 30.0,
+  "format": "mp4",
+  "audio_codec": "aac",
+  "video_codec": "h264",
+  "scene_changes": [8.0, 15.5, 22.0]
+}

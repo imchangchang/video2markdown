@@ -66,6 +66,18 @@ testbench/output/*
 !testbench/input/.gitkeep
 !testbench/output/.gitkeep
 
+# Test data and outputs (large files and generated outputs)
+# - testdata/videos/: Large test videos (manual placement, or use Git LFS)
+# - test_outputs/: Generated during testing, can be deleted anytime
+testdata/videos/*
+!testdata/videos/.gitkeep
+test_outputs/*
+!test_outputs/.gitkeep
+test_outputs/temp/*
+!test_outputs/temp/.gitkeep
+test_outputs/results/*
+!test_outputs/results/.gitkeep
+
 # Temporary processing files
 temp/
 *.tmp

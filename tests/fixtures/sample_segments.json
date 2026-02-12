@@ -1,0 +1,27 @@
+[
+  {
+    "start": 0.0,
+    "end": 3.5,
+    "text": "Hello everyone, today we're going to discuss video processing."
+  },
+  {
+    "start": 3.5,
+    "end": 8.2,
+    "text": "First, we need to extract audio from the video file."
+  },
+  {
+    "start": 8.2,
+    "end": 15.0,
+    "text": "Then we use speech recognition to convert audio to text."
+  },
+  {
+    "start": 15.0,
+    "end": 22.5,
+    "text": "The text is then analyzed by AI to generate structured content."
+  },
+  {
+    "start": 22.5,
+    "end": 30.0,
+    "text": "Finally, we combine the text with key frames to create a markdown document."
+  }
+]
