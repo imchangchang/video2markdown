@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # Whisper 配置
     asr_provider: str = Field(default="local", description="ASR 提供商: local 或 openai")
     whisper_model: str = Field(default="base", description="Whisper 模型名称 (tiny/base/small/medium) 或完整路径")
+    whisper_local_model: str = Field(default="", description="本地 Whisper 模型路径")
     whisper_language: str = Field(default="zh")
 
     # 处理参数
@@ -63,9 +64,9 @@ class Settings(BaseSettings):
     temp_dir: Path = Field(default=PROJECT_ROOT / "test_outputs" / "temp")
     prompts_dir: Path = Field(default=PROJECT_ROOT / "prompts")
 
-    # API 定价（单位：元/百万 tokens）
-    price_input_per_1m: float = Field(default=4.8, description="输入 token 价格（元/百万）")
-    price_output_per_1m: float = Field(default=20.0, description="输出 token 价格（元/百万）")
+    # LLM API 定价（单位：元/百万 tokens）
+    llm_price_input_per_1m: float = Field(default=4.8, description="输入 token 价格（元/百万）")
+    llm_price_output_per_1m: float = Field(default=20.0, description="输出 token 价格（元/百万）")
 
     def get_client_kwargs(self) -> dict:
         """获取 OpenAI 客户端参数."""
@@ -101,11 +102,21 @@ class Settings(BaseSettings):
         """解析 Whisper 模型路径.
         
         搜索顺序:
-        1. 直接路径（如 models/ggml-medium-q8_0.bin）
-        2. models/ggml-{model}.bin
-        3. models/ggml-{model}-q8_0.bin（量化版本）
-        4. whisper.cpp/models/ 下的相应文件
+        1. whisper_local_model（如果配置了完整路径）
+        2. whisper_model 配置（base/small/medium 等）
+        3. models/ggml-{model}.bin
+        4. models/ggml-{model}-q8_0.bin（量化版本）
         """
+        # 优先使用 whisper_local_model（如果配置了）
+        if self.whisper_local_model:
+            path = Path(self.whisper_local_model)
+            if path.exists() and path.is_file():
+                return path.resolve()
+            # 尝试在项目根目录下查找
+            full_path = PROJECT_ROOT / self.whisper_local_model
+            if full_path.exists() and full_path.is_file():
+                return full_path.resolve()
+        
         model = self.whisper_model
         
         # 如果是完整路径且存在

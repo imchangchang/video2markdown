@@ -47,8 +47,8 @@ SUMMARY_FILE="$OUTPUT_DIR/summary.md"
 # 加载 .env 文件中的价格配置（如果存在）
 if [ -f ".env" ]; then
     # 读取价格配置，使用默认值
-    PRICE_INPUT_PER_1M=$(grep "^KIMI_PRICE_INPUT_PER_1M=" .env 2>/dev/null | cut -d= -f2 || echo "4.8")
-    PRICE_OUTPUT_PER_1M=$(grep "^KIMI_PRICE_OUTPUT_PER_1M=" .env 2>/dev/null | cut -d= -f2 || echo "20.0")
+    PRICE_INPUT_PER_1M=$(grep "^LLM_PRICE_INPUT_PER_1M=" .env 2>/dev/null | cut -d= -f2 || echo "4.8")
+    PRICE_OUTPUT_PER_1M=$(grep "^LLM_PRICE_OUTPUT_PER_1M=" .env 2>/dev/null | cut -d= -f2 || echo "20.0")
 else
     # 使用默认价格
     PRICE_INPUT_PER_1M="4.8"
@@ -253,25 +253,19 @@ total_api_calls=0
 total_input_tokens=0
 total_output_tokens=0
 
-# 从每个视频的 processing.log 中提取统计信息
+# 从每个视频的 ai_tokens.json 中读取统计信息
 for video_path in "${video_list[@]}"; do
     video_name=$(basename "$video_path")
     video_stem="${video_name%.*}"
-    log_file="$OUTPUT_DIR/$video_stem/processing.log"
+    tokens_file="$OUTPUT_DIR/$video_stem/temp/ai_tokens.json"
     
-    if [ -f "$log_file" ] && grep -q "📊 AI API 用量汇总" "$log_file" 2>/dev/null; then
-        # 从汇总行提取数据
-        summary_line=$(grep "📊 AI API 用量汇总" -A3 "$log_file" 2>/dev/null | grep "Token 用量")
-        api_calls=$(grep "API 调用" "$log_file" 2>/dev/null | tail -1 | grep -oP '\d+' | head -1)
-        
-        # 提取输入/输出/总计 token（先移除逗号分隔符）
-        input_tok=$(echo "$summary_line" | sed 's/,//g' | grep -oP '\d+(?=\s*输入)' | head -1)
-        output_tok=$(echo "$summary_line" | sed 's/,//g' | grep -oP '\d+(?=\s*输出)' | head -1)
-        total_tok=$(echo "$summary_line" | sed 's/,//g' | grep -oP '\d+(?=\s*总计)' | head -1)
-        
-        # 提取费用
-        cost_line=$(grep "预估费用" "$log_file" 2>/dev/null | tail -1)
-        cost=$(echo "$cost_line" | grep -oP '(?<=¥)[0-9.]+' | head -1)
+    if [ -f "$tokens_file" ] && command -v python3 &> /dev/null; then
+        # 从 JSON 提取数据
+        api_calls=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['api_calls'])")
+        input_tok=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['prompt_tokens'])")
+        output_tok=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['completion_tokens'])")
+        total_tok=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['total_tokens'])")
+        cost=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['total_cost'])")
         
         # 累加到总计
         [ -n "$api_calls" ] && total_api_calls=$((total_api_calls + api_calls))
@@ -303,7 +297,7 @@ echo "| **总计** | **$total_api_calls** | **$total_input_tokens / $total_outpu
 
 cat >> "$SUMMARY_FILE" << EOF
 
-> 价格标准（从 .env 读取）
+> 价格标准（从 .env 读取，配置项：LLM_PRICE_INPUT_PER_1M / LLM_PRICE_OUTPUT_PER_1M）
 > - 输入: ¥$PRICE_INPUT_PER_1M / 百万 tokens
 > - 输出: ¥$PRICE_OUTPUT_PER_1M / 百万 tokens
 
@@ -311,10 +305,12 @@ cat >> "$SUMMARY_FILE" << EOF
 
 每个视频目录包含：
 - \`<视频名>.md\` - 最终 Markdown 文档
-- \`<视频名>_word.md\` - AI 优化文稿
-- \`<视频名>.srt\` - 字幕文件
 - \`images/\` - 关键配图（统一存放）
 - \`temp/\` - 中间产物
+  - \`<视频名>_word.md\` - AI 优化文稿 (M1)
+  - \`<视频名>.srt\` - 字幕文件
+  - \`ai_tokens.json\` - AI API 调用明细
+  - \`summary.md\` - 处理汇总报告
 EOF
 
 echo -e "${BLUE}========================================${NC}"

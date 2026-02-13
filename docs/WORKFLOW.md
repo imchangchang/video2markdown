@@ -82,12 +82,18 @@ flowchart TD
     end
 
     subgraph OutputFiles [输出文件]
+    %% temp：中间过程数据，日志等信息，方便了解中间过程，进行debug
+    %% 输出文件根目录下删掉temp应该就是正式的成果文件
+    %% ai_tokens.json 里面会给出每次调用明细，以及最终的汇总信息,方便其他程序读取
+    %% summary.md 给人看的最终测试汇总情况，处理时间、总体费用
         OF1["• {title}/{title}.md - 最终图文文档"]
-        OF2["• {title}/{title}_word.md - AI优化文稿M1</br>(可直接阅读替代视频)"]
-        OF3["• {title}/{title}.srt - 原始转录字幕</br>(参考用)"]
-        OF4["• {title}/images/ - 关键配图M2 + 说明M3"]
+        OF2["• {title}/images/ - 关键配图M2 + 说明M3"]
+        OF3["• {title}/temp/{title}_word.md - AI优化文稿M1</br>(可直接阅读替代视频)"]
+        OF4["• {title}/temp/{title}.srt - 原始转录字幕</br>(参考用)"]
+        OF5["• {title}/temp/processing.log - 处理日志"]
+        OF6["• {title}/temp/ai_tokens.json - AI API调用明细"]
+        OF7["• {title}/temp/summary.md - 处理汇总报告"]
     end
-
 ```
 
 ## 核心概念：M1/M2/M3 中间产物
@@ -246,23 +252,36 @@ flowchart TD
 test_outputs/results/
 └── {filename}/                          # 以视频标题命名的文件夹
     ├── {filename}.md                    # 最终图文文档
-    ├── {filename}_word.md               # M1: AI优化文稿（核心产物）
-    ├── {filename}.srt                   # 原始转录字幕（参考）
-    └── {filename}_frames/               # M2 + M3
-        ├── frame_0001_15.5s.jpg         # 关键配图
-        ├── frame_0001_15.5s.txt         # M3: 配图说明
-        ├── frame_0002_45.2s.jpg
-        └── ...
+    ├── images/                          # 关键配图 (M2) + 说明 (M3)
+    │   ├── frame_0001_15.5s.jpg
+    │   ├── frame_0001_15.5s.txt
+    │   └── ...
+    └── temp/                            # 中间产物
+        ├── {filename}_word.md           # M1: AI优化文稿
+        ├── {filename}.srt               # 原始转录字幕
+        ├── processing.log               # 处理日志
+        ├── ai_tokens.json               # AI API 调用明细
+        └── summary.md                   # 处理汇总报告
 ```
 
 ### 各文件用途
 
-| 文件 | 用途 | 是否必须 |
-|-----|------|---------|
-| `{filename}_word.md` | **M1: AI优化文稿**，可直接阅读替代视频 | ✅ 核心产物 |
-| `{filename}.md` | 最终图文文档，包含配图 | ✅ 完整产物 |
-| `{filename}.srt` | 原始转录字幕，用于核对 | 参考 |
-| `{filename}_frames/` | M2 配图 + M3 说明 | 有配图时 |
+| 文件 | 位置 | 用途 | 是否必须 |
+|-----|------|------|---------|
+| `{filename}.md` | 根目录 | 最终图文文档，包含配图 | ✅ 完整产物 |
+| `images/` | 根目录 | M2 配图 + M3 说明 | 有配图时 |
+| `{filename}_word.md` | temp/ | **M1: AI优化文稿**，可直接阅读替代视频 | ✅ 核心产物 |
+| `{filename}.srt` | temp/ | 原始转录字幕，用于核对 | 参考 |
+| `ai_tokens.json` | temp/ | AI API 调用明细（供程序读取） | 统计用 |
+| `summary.md` | temp/ | 处理汇总报告（给人阅读） | 统计用 |
+| `processing.log` | temp/ | 详细处理日志 | 调试用 |
+
+### temp/ 目录说明
+
+`temp/` 目录包含所有中间产物和调试信息：
+- 删除 `temp/` 后，剩下的就是纯成果文件（{filename}.md + images/）
+- `ai_tokens.json` 包含每次 API 调用的明细和汇总，可供其他程序读取
+- `summary.md` 给人阅读的处理汇总（时间、费用等）
 
 ## 配置参数影响
 

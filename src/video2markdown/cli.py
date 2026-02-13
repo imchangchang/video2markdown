@@ -220,6 +220,9 @@ def stage6(video_path: Path, output: Path, language: str):
 @click.option("-l", "--language", default="zh")
 def process(video_path: Path, output: Path, language: str):
     """完整流程: 执行所有 7 个阶段."""
+    import time
+    from datetime import datetime
+    
     from video2markdown.stage1_analyze import analyze_video
     from video2markdown.stage2_transcribe import transcribe_video
     from video2markdown.stage3_keyframes import extract_candidate_frames
@@ -229,10 +232,14 @@ def process(video_path: Path, output: Path, language: str):
     from video2markdown.stage7_render import render_markdown
     from video2markdown.stats import get_stats, reset_stats
     
-    # 重置统计
+    # 重置统计并设置初始信息
     reset_stats()
+    stats = get_stats()
+    stats.summary.video_name = video_path.name
+    stats.summary.start_time = datetime.now().isoformat()
     
     output_dir = output or settings.output_dir
+    temp_dir = output_dir / "temp"
     
     click.echo(f"处理视频: {video_path.name}")
     click.echo(f"输出目录: {output_dir}")
@@ -249,44 +256,67 @@ def process(video_path: Path, output: Path, language: str):
     # Stage 1
     click.echo("=" * 50)
     video_info = analyze_video(video_path)
+    stats.summary.video_duration = video_info.duration
+    stats.summary.completed_stages = 1
     click.echo()
     
     # Stage 2
     click.echo("=" * 50)
     transcript = transcribe_video(video_path, video_info, model_path, language)
+    stats.summary.completed_stages = 2
     click.echo()
     
     # Stage 3
     click.echo("=" * 50)
     candidates = extract_candidate_frames(video_path, video_info)
+    stats.summary.completed_stages = 3
     click.echo()
     
     # Stage 4
     click.echo("=" * 50)
     keyframes = filter_keyframes(video_path, candidates, transcript)
+    stats.summary.completed_stages = 4
     click.echo()
     
     # Stage 5
     click.echo("=" * 50)
-    temp_dir = output_dir / "temp"
     frames_dir = temp_dir / "images"
     descriptions = analyze_images(video_path, keyframes, transcript, frames_dir)
+    stats.summary.completed_stages = 5
     click.echo()
     
     # Stage 6
     click.echo("=" * 50)
     document = generate_document(transcript, keyframes, descriptions)
+    stats.summary.completed_stages = 6
     click.echo()
     
     # Stage 7
     click.echo("=" * 50)
-    result_path = render_markdown(document, transcript, descriptions, output_dir)
+    result_path = render_markdown(document, transcript, descriptions, output_dir, temp_dir)
+    stats.summary.completed_stages = 7
     
-    # 打印全局统计
+    # 设置结束时间
+    stats.summary.end_time = datetime.now().isoformat()
+    
+    # 生成 ai_tokens.json 和 summary.md
     click.echo()
     click.echo("=" * 50)
-    stats = get_stats()
-    click.echo(stats.summary())
+    click.echo("生成汇总文件...")
+    
+    # 保存 ai_tokens.json
+    ai_tokens_path = temp_dir / "ai_tokens.json"
+    stats.save_json(ai_tokens_path)
+    click.echo(f"  ✓ API 用量明细: {ai_tokens_path}")
+    
+    # 保存 summary.md
+    summary_path = temp_dir / "summary.md"
+    stats.save_summary_md(summary_path)
+    click.echo(f"  ✓ 处理汇总报告: {summary_path}")
+    
+    # 打印统计摘要
+    click.echo()
+    click.echo(stats.summary_text())
     
     click.echo()
     click.echo("✅ 处理完成!")

@@ -6,12 +6,14 @@
 输出结构:
     {title}/
     ├── {title}.md           # 最终文档
-    ├── {title}_word.md      # 视频文字稿
-    ├── {title}.srt          # 字幕文件
-    └── images/              # 关键配图
-        ├── frame_0001_15.5s.jpg
-        ├── frame_0001_15.5s.txt  # 配图说明
-        └── ...
+    ├── images/              # 关键配图
+    │   ├── frame_0001_15.5s.jpg
+    │   └── frame_0001_15.5s.txt  # 配图说明
+    └── temp/                # 中间产物
+        ├── {title}_word.md  # 视频文字稿 (M1)
+        ├── {title}.srt      # 字幕文件
+        ├── ai_tokens.json   # AI API 调用明细
+        └── summary.md       # 处理汇总报告
 """
 
 import shutil
@@ -26,6 +28,7 @@ def render_markdown(
     transcript: VideoTranscript,
     descriptions: ImageDescriptions,
     output_dir: Path,
+    temp_dir: Optional[Path] = None,
 ) -> Path:
     """渲染 Markdown 文档.
     
@@ -34,6 +37,7 @@ def render_markdown(
         transcript: 视频文字稿 (M1)
         descriptions: 配图说明 (M3)
         output_dir: 输出目录
+        temp_dir: 临时目录（用于存放中间产物）
         
     Returns:
         主文档路径
@@ -48,19 +52,24 @@ def render_markdown(
     frames_dir = doc_dir / "images"
     frames_dir.mkdir(exist_ok=True)
     
+    # 临时目录（存放中间产物）
+    if temp_dir is None:
+        temp_dir = doc_dir / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    
     # 1. 渲染主文档
     main_doc = _render_main_document(document, descriptions)
     main_path = doc_dir / f"{document.title}.md"
     main_path.write_text(main_doc, encoding="utf-8")
     print(f"  ✓ 主文档: {main_path}")
     
-    # 2. 保存文字稿
-    word_path = doc_dir / f"{document.title}_word.md"
+    # 2. 保存文字稿到 temp/ 目录
+    word_path = temp_dir / f"{document.title}_word.md"
     word_path.write_text(transcript.to_word_document(), encoding="utf-8")
     print(f"  ✓ 文字稿: {word_path}")
     
-    # 3. 保存字幕
-    srt_path = doc_dir / f"{document.title}.srt"
+    # 3. 保存字幕到 temp/ 目录
+    srt_path = temp_dir / f"{document.title}.srt"
     srt_path.write_text(transcript.to_srt(), encoding="utf-8")
     print(f"  ✓ 字幕: {srt_path}")
     

@@ -130,8 +130,8 @@ def _print_usage_info(response) -> None:
     get_stats().add(prompt_tokens, completion_tokens)
     
     # 从配置获取价格
-    input_cost = (prompt_tokens / 1_000_000) * settings.price_input_per_1m
-    output_cost = (completion_tokens / 1_000_000) * settings.price_output_per_1m
+    input_cost = (prompt_tokens / 1_000_000) * settings.llm_price_input_per_1m
+    output_cost = (completion_tokens / 1_000_000) * settings.llm_price_output_per_1m
     total_cost = input_cost + output_cost
     
     print(f"  📊 Token 用量:")
