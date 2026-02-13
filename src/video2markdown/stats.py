@@ -27,14 +27,11 @@ class APICallRecord:
 
 
 @dataclass
-class ProcessingSummary:
-    """处理汇总信息."""
-    video_name: str = ""
-    video_duration: float = 0.0
+class StageTiming:
+    """单个阶段的耗时信息."""
+    name: str
     start_time: str = ""
     end_time: str = ""
-    total_stages: int = 7
-    completed_stages: int = 0
     
     @property
     def elapsed_seconds(self) -> float:
@@ -46,6 +43,49 @@ class ProcessingSummary:
             return (end - start).total_seconds()
         except:
             return 0.0
+    
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "elapsed_seconds": self.elapsed_seconds,
+        }
+
+
+@dataclass
+class ProcessingSummary:
+    """处理汇总信息."""
+    video_name: str = ""
+    video_duration: float = 0.0
+    start_time: str = ""
+    end_time: str = ""
+    total_stages: int = 7
+    completed_stages: int = 0
+    stage_timings: list[StageTiming] = field(default_factory=list)
+    
+    @property
+    def elapsed_seconds(self) -> float:
+        if not self.start_time or not self.end_time:
+            return 0.0
+        try:
+            start = datetime.fromisoformat(self.start_time)
+            end = datetime.fromisoformat(self.end_time)
+            return (end - start).total_seconds()
+        except:
+            return 0.0
+    
+    def start_stage(self, name: str) -> None:
+        """开始记录一个阶段的耗时."""
+        timing = StageTiming(name=name, start_time=datetime.now().isoformat())
+        self.stage_timings.append(timing)
+    
+    def end_stage(self, name: str) -> None:
+        """结束记录一个阶段的耗时."""
+        for timing in reversed(self.stage_timings):
+            if timing.name == name and not timing.end_time:
+                timing.end_time = datetime.now().isoformat()
+                break
 
 
 class UsageStats:
@@ -136,6 +176,7 @@ class UsageStats:
                 "elapsed_seconds": self.summary.elapsed_seconds,
                 "total_stages": self.summary.total_stages,
                 "completed_stages": self.summary.completed_stages,
+                "stage_timings": [t.to_dict() for t in self.summary.stage_timings],
             },
             "pricing": {
                 "input_price_per_1m": settings.llm_price_input_per_1m,
@@ -196,6 +237,19 @@ class UsageStats:
             lines.append(f"| {i} | {r.stage} | {r.model} | {r.prompt_tokens:,} | {r.completion_tokens:,} | {r.total_tokens:,} |")
         
         lines.extend([
+            "",
+            "## 阶段耗时",
+            "",
+            "| 阶段 | 耗时 |",
+            "|-----|-----|",
+        ])
+        
+        for timing in self.summary.stage_timings:
+            lines.append(f"| {timing.name} | {self._format_duration(timing.elapsed_seconds)} |")
+        
+        lines.extend([
+            "",
+            f"**总耗时**: {self._format_duration(self.summary.elapsed_seconds)}",
             "",
             "## 价格配置",
             "",

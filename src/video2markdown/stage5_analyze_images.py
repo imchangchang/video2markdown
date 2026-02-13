@@ -11,6 +11,8 @@
 """
 
 import base64
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -18,7 +20,8 @@ import cv2
 from openai import OpenAI
 
 from video2markdown.config import settings
-from video2markdown.models import ImageDescription, ImageDescriptions, KeyFrames, VideoTranscript
+from video2markdown.models import ImageDescription, ImageDescriptions, KeyFrame, KeyFrames, VideoTranscript
+from video2markdown.stats import get_stats
 
 
 def analyze_images(
@@ -28,7 +31,7 @@ def analyze_images(
     output_dir: Path,
     max_size: int = 1024,
 ) -> ImageDescriptions:
-    """AI 分析关键帧图片.
+    """AI 分析关键帧图片（并发版本）.
     
     Args:
         video_path: 视频文件路径
@@ -43,32 +46,82 @@ def analyze_images(
     print(f"[Stage 5] AI 图像分析: {len(keyframes.frames)} 张图片")
     
     client = OpenAI(**settings.get_client_kwargs())
-    descriptions = []
-    
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # 获取并发配置
+    api_concurrency = settings.api_max_concurrency
+    image_concurrency = min(settings.image_max_concurrency, api_concurrency)
+    
+    print(f"  并发配置: API={api_concurrency}, 图片分析={image_concurrency}")
+    
+    # 阶段1: 串行提取所有帧（视频读取不支持并发）
+    print(f"  [阶段1/2] 提取 {len(keyframes.frames)} 张原始帧...")
+    frame_tasks = []
     for i, frame in enumerate(keyframes.frames, 1):
-        print(f"  分析图片 {i}/{len(keyframes.frames)} @ {frame.timestamp:.1f}s...")
-        
-        # 1. 提取原始帧 (高质量)
         frame_path = output_dir / f"frame_{i:04d}_{frame.timestamp:.1f}s.jpg"
         _extract_original_frame(video_path, frame.timestamp, frame_path)
-        
-        # 2. 准备 API 调用 (压缩版本)
-        api_image = _prepare_for_api(frame_path, max_size)
-        
-        # 3. 获取相关文字稿
+        api_image_path = _prepare_for_api(frame_path, max_size)
         context = transcript.get_text_around(frame.timestamp, window=10.0)
-        
-        # 4. 调用 AI 分析
-        desc = _analyze_single_image(
-            client, api_image, frame.timestamp, frame_path, context
-        )
-        
-        descriptions.append(desc)
-        print(f"    ✓ {desc.description[:60]}...")
+        frame_tasks.append({
+            'index': i,
+            'frame': frame,
+            'frame_path': frame_path,
+            'api_image_path': api_image_path,
+            'context': context,
+        })
+    print(f"    ✓ 提取完成")
     
-    print(f"  ✓ 完成 {len(descriptions)} 张图片分析")
+    # 阶段2: 并发分析图片
+    print(f"  [阶段2/2] 并发分析图片...")
+    descriptions = [None] * len(frame_tasks)  # 预分配列表，保持顺序
+    stats_lock = threading.Lock()
+    
+    def analyze_single(task: dict) -> tuple[int, ImageDescription]:
+        """分析单张图片，返回 (索引, 结果)."""
+        idx = task['index']
+        frame = task['frame']
+        
+        desc = _analyze_single_image(
+            client,
+            task['api_image_path'],
+            frame.timestamp,
+            task['frame_path'],
+            task['context'],
+        )
+        return idx - 1, desc  # 转换为 0-based 索引
+    
+    with ThreadPoolExecutor(max_workers=image_concurrency) as executor:
+        # 提交所有任务
+        future_to_task = {
+            executor.submit(analyze_single, task): task 
+            for task in frame_tasks
+        }
+        
+        # 收集结果（保持顺序输出）
+        completed = 0
+        for future in as_completed(future_to_task):
+            try:
+                idx, desc = future.result()
+                descriptions[idx] = desc
+                completed += 1
+                
+                # 按顺序输出已完成的任务
+                print(f"  分析图片 {idx+1}/{len(frame_tasks)} @ {desc.timestamp:.1f}s...")
+                print(f"    ✓ {desc.description[:60]}...")
+                
+            except Exception as e:
+                task = future_to_task[future]
+                print(f"    ✗ 图片 {task['index']} 分析失败: {e}")
+                # 创建一个空的描述作为占位
+                descriptions[task['index']-1] = ImageDescription(
+                    timestamp=task['frame'].timestamp,
+                    image_path=task['frame_path'],
+                    description="[图片分析失败]",
+                    key_elements=[],
+                    related_transcript=task['context'],
+                )
+    
+    print(f"  ✓ 完成 {len([d for d in descriptions if d is not None])} 张图片分析")
     return ImageDescriptions(descriptions=descriptions)
 
 
@@ -91,6 +144,7 @@ def _extract_original_frame(
         raise RuntimeError(f"无法读取 {timestamp}s 的帧")
     
     # 保存高质量原图
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(output_path), frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return output_path
 
@@ -134,32 +188,6 @@ def _load_prompt_with_meta(template_path: Path):
     return system_msg, user_template, api_params
 
 
-def _print_usage_info(response) -> None:
-    """打印 API 用量和价格信息，并更新全局统计."""
-    if not hasattr(response, 'usage') or response.usage is None:
-        return
-    
-    usage = response.usage
-    prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-    completion_tokens = getattr(usage, 'completion_tokens', 0)
-    total_tokens = getattr(usage, 'total_tokens', 0)
-    
-    if total_tokens == 0:
-        return
-    
-    # 更新全局统计
-    from video2markdown.stats import get_stats
-    get_stats().add(prompt_tokens, completion_tokens)
-    
-    # 从配置获取价格
-    input_cost = (prompt_tokens / 1_000_000) * settings.llm_price_input_per_1m
-    output_cost = (completion_tokens / 1_000_000) * settings.llm_price_output_per_1m
-    total_cost = input_cost + output_cost
-    
-    print(f"      📊 Token 用量: {prompt_tokens:,} 输入 / {completion_tokens:,} 输出")
-    print(f"      💰 预估费用: ¥{total_cost:.4f}")
-
-
 def _analyze_single_image(
     client: OpenAI,
     image_path: Path,
@@ -198,7 +226,7 @@ def _analyze_single_image(
     
     content = response.choices[0].message.content
     
-    # 打印 Token 用量
+    # 打印 Token 用量并更新全局统计
     _print_usage_info(response)
     
     # 解析响应 (简单处理)
@@ -215,6 +243,31 @@ def _analyze_single_image(
         key_elements=key_elements,
         related_transcript=context,
     )
+
+
+def _print_usage_info(response) -> None:
+    """打印 API 用量和价格信息，并更新全局统计."""
+    if not hasattr(response, 'usage') or response.usage is None:
+        return
+    
+    usage = response.usage
+    prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+    completion_tokens = getattr(usage, 'completion_tokens', 0)
+    total_tokens = getattr(usage, 'total_tokens', 0)
+    
+    if total_tokens == 0:
+        return
+    
+    # 更新全局统计（线程安全）
+    get_stats().add(prompt_tokens, completion_tokens)
+    
+    # 从配置获取价格
+    input_cost = (prompt_tokens / 1_000_000) * settings.llm_price_input_per_1m
+    output_cost = (completion_tokens / 1_000_000) * settings.llm_price_output_per_1m
+    total_cost = input_cost + output_cost
+    
+    # 不打印单个图片的费用，避免日志混乱
+    # 费用信息会在汇总时统一显示
 
 
 def _extract_key_elements(text: str) -> list[str]:

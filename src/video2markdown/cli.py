@@ -62,7 +62,7 @@ def stage2(video_path: Path, output: Path, language: str):
     
     # 运行
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path, language)
+    transcript = transcribe_video(video_path, video_info, model_path)
     
     # 保存 M1
     output_dir = output or settings.output_dir
@@ -126,7 +126,7 @@ def stage4(video_path: Path, output: Path, language: str):
         sys.exit(1)
     
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path, language)
+    transcript = transcribe_video(video_path, video_info, model_path)
     candidates = extract_candidate_frames(video_path, video_info)
     keyframes = filter_keyframes(video_path, candidates, transcript)
     
@@ -167,7 +167,7 @@ def stage5(video_path: Path, output: Path, language: str):
         sys.exit(1)
     
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path, language)
+    transcript = transcribe_video(video_path, video_info, model_path)
     candidates = extract_candidate_frames(video_path, video_info)
     keyframes = filter_keyframes(video_path, candidates, transcript)
     
@@ -199,7 +199,7 @@ def stage6(video_path: Path, output: Path, language: str):
         sys.exit(1)
     
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path, language)
+    transcript = transcribe_video(video_path, video_info, model_path)
     candidates = extract_candidate_frames(video_path, video_info)
     keyframes = filter_keyframes(video_path, candidates, transcript)
     
@@ -255,45 +255,59 @@ def process(video_path: Path, output: Path, language: str):
     
     # Stage 1
     click.echo("=" * 50)
+    stats.summary.start_stage("stage1_analyze")
     video_info = analyze_video(video_path)
     stats.summary.video_duration = video_info.duration
+    stats.summary.end_stage("stage1_analyze")
     stats.summary.completed_stages = 1
     click.echo()
     
     # Stage 2
     click.echo("=" * 50)
-    transcript = transcribe_video(video_path, video_info, model_path, language)
+    stats.summary.start_stage("stage2_transcribe")
+    transcript = transcribe_video(video_path, video_info, model_path)
+    stats.summary.end_stage("stage2_transcribe")
     stats.summary.completed_stages = 2
     click.echo()
     
     # Stage 3
     click.echo("=" * 50)
+    stats.summary.start_stage("stage3_keyframes")
     candidates = extract_candidate_frames(video_path, video_info)
+    stats.summary.end_stage("stage3_keyframes")
     stats.summary.completed_stages = 3
     click.echo()
     
     # Stage 4
     click.echo("=" * 50)
+    stats.summary.start_stage("stage4_filter")
     keyframes = filter_keyframes(video_path, candidates, transcript)
+    stats.summary.end_stage("stage4_filter")
     stats.summary.completed_stages = 4
     click.echo()
     
     # Stage 5
     click.echo("=" * 50)
+    stats.summary.start_stage("stage5_analyze_images")
     frames_dir = temp_dir / "images"
     descriptions = analyze_images(video_path, keyframes, transcript, frames_dir)
+    stats.summary.end_stage("stage5_analyze_images")
     stats.summary.completed_stages = 5
     click.echo()
     
     # Stage 6
     click.echo("=" * 50)
+    stats.summary.start_stage("stage6_generate")
     document = generate_document(transcript, keyframes, descriptions)
+    stats.summary.end_stage("stage6_generate")
     stats.summary.completed_stages = 6
     click.echo()
     
     # Stage 7
     click.echo("=" * 50)
+    stats.summary.start_stage("stage7_render")
     result_path = render_markdown(document, transcript, descriptions, output_dir, temp_dir)
+    stats.summary.end_stage("stage7_render")
     stats.summary.completed_stages = 7
     
     # 设置结束时间

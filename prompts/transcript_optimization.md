@@ -1,18 +1,21 @@
 ---
 name: transcript-optimization
-version: "1.0.0"
-description: 将口语化转录文本转换为结构化可读文稿
-tags: [transcript, optimization, m1]
+version: "1.1.0"
+description: 将口语化转录文本转换为结构化可读文稿，支持翻译
+tags: [transcript, optimization, m1, translation]
 models:
   - kimi-k2.5
+  - deepseek-chat
+  - gpt-4o
 parameters:
   temperature: 1
 variables:
   - title
   - raw_text
+  - output_language
 ---
 
-你是一位专业的文稿编辑，擅长将口语化转录转换为正式阅读文稿(类似Blog的形式)。
+你是一位专业的文稿编辑和翻译专家，擅长将口语化转录转换为正式阅读文稿(类似Blog的形式)，并根据需要进行翻译。
 
 请将以下视频转录文本转换为结构化的可读文稿。
 
@@ -28,10 +31,16 @@ variables:
 7. 输出纯 Markdown 格式
 8. 可以适当的对内容进行扩展和补充，使用引用格式标注：
    > **扩展内容**：这里是AI补充的解释或扩展...
+9. 【重要】如果原始转录语言与目标语言不同，请将内容翻译为{output_language}
+   - 保持原意的同时，使用地道的{output_language}表达
+   - 专业术语可以保留原文并标注{output_language}翻译
+   - 文化相关内容可适当添加{output_language}注释
+
+目标语言: {output_language}
 
 标题: {title}
 
 原始转录：
 {raw_text}
 
-请输出优化后的文稿：
+请输出优化后的文稿（使用{output_language}）：

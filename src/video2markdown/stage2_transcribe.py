@@ -11,11 +11,9 @@
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Optional
 
-import opencc
 from openai import OpenAI
 
 from video2markdown.config import settings
@@ -45,7 +43,7 @@ def extract_audio(video_path: Path, output_path: Path) -> Path:
 def transcribe_audio(
     audio_path: Path,
     model_path: Path,
-    language: str = "zh"
+    language: str = "auto"
 ) -> list[TranscriptSegment]:
     """Stage 2b: 使用 whisper.cpp 转录音频."""
     print(f"  [2b] 语音转录 (使用 {model_path.name})...")
@@ -149,14 +147,15 @@ def _print_usage_info(response) -> None:
 def optimize_transcript(
     segments: list[TranscriptSegment],
     title: str,
-    language: str = "zh",
+    output_language: str = "zh",
 ) -> str:
     """Stage 2c: AI 优化转录为可读文稿 (生成 M1).
     
     将口语化的转录文本转换为结构化的可读文稿.
+    根据 output_language 配置，可能需要翻译为目标语言.
     Prompt 从 prompts/transcript_optimization.md 加载.
     """
-    print(f"  [2c] AI 文稿优化...")
+    print(f"  [2c] AI 文稿优化 (输出语言: {output_language})...")
     
     # 合并转录文本
     raw_text = "\n".join(f"[{int(seg.start//60):02d}:{int(seg.start%60):02d}] {seg.text}" 
@@ -167,10 +166,24 @@ def optimize_transcript(
     if not prompt_path.exists():
         raise FileNotFoundError(f"Prompt 文件不存在: {prompt_path}")
     
+    # 语言映射
+    lang_names = {
+        "zh": "中文",
+        "en": "英文",
+        "ja": "日文",
+        "ko": "韩文",
+        "fr": "法文",
+        "de": "德文",
+        "es": "西班牙文",
+        "ru": "俄文",
+    }
+    lang_name = lang_names.get(output_language, output_language)
+    
     prompt = load_prompt(
         prompt_path,
         title=title,
-        raw_text=raw_text[:8000]  # 限制长度
+        raw_text=raw_text[:8000],  # 限制长度
+        output_language=lang_name,
     )
     
     # 从 prompt frontmatter 获取参数
@@ -209,17 +222,10 @@ def optimize_transcript(
     return optimized
 
 
-def convert_to_simplified(text: str) -> str:
-    """繁体中文转简体中文."""
-    converter = opencc.OpenCC('t2s')
-    return converter.convert(text)
-
-
 def transcribe_video(
     video_path: Path,
     video_info: VideoInfo,
     model_path: Path,
-    language: str = "zh",
     temp_dir: Optional[Path] = None,
     cache_dir: Optional[Path] = None,
     use_cache: bool = True,
@@ -230,7 +236,6 @@ def transcribe_video(
         video_path: 视频文件路径
         video_info: 视频信息
         model_path: Whisper 模型路径
-        language: 语言代码
         temp_dir: 临时目录
         cache_dir: 缓存目录（用于保存转录结果，避免重复执行）
         use_cache: 是否使用缓存
@@ -238,7 +243,11 @@ def transcribe_video(
     Returns:
         VideoTranscript (M1) - AI优化后的可读文稿
     """
+    # 获取输出语言配置
+    output_language = settings.output_language
+    
     print(f"[Stage 2] 音频提取与文稿生成: {video_path.name}")
+    print(f"  输出语言: {output_language}")
     
     # 设置缓存目录
     if cache_dir is None:
@@ -248,7 +257,7 @@ def transcribe_video(
     # 生成缓存键（基于视频文件哈希）
     import hashlib
     video_hash = hashlib.sha256(video_path.read_bytes()[:1024*1024]).hexdigest()[:16]
-    cache_key = f"{video_path.stem}_{video_hash}_{model_path.name}_{language}"
+    cache_key = f"{video_path.stem}_{video_hash}_{model_path.name}_{output_language}"
     cache_path = cache_dir / f"{cache_key}_raw.json"
     
     # 检查缓存
@@ -262,12 +271,12 @@ def transcribe_video(
         print(f"  ✓ 从缓存加载: {len(segments)} 个片段")
         
         # 2c: AI 文稿优化 (生成 M1) - 这部分不缓存，每次都重新优化
-        optimized_text = optimize_transcript(segments, video_path.stem, language)
+        optimized_text = optimize_transcript(segments, video_path.stem, output_language)
         
         transcript = VideoTranscript(
             video_path=video_path,
             title=video_path.stem,
-            language=language,
+            language=output_language,
             segments=segments,
             optimized_text=optimized_text,
         )
@@ -278,24 +287,20 @@ def transcribe_video(
         
         return transcript
     
-    # 创建临时目录
+    # 创建临时目录（使用输出目录的 temp/audio 子目录）
     if temp_dir is None:
-        temp_dir = Path(tempfile.gettempdir()) / "video2markdown"
-    temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = settings.output_dir / "temp"
+    audio_dir = temp_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
     
-    audio_path = temp_dir / f"{video_path.stem}.wav"
+    audio_path = audio_dir / f"{video_path.stem}.wav"
     
     try:
         # 2a: 提取音频
         extract_audio(video_path, audio_path)
         
-        # 2b: 语音转录
-        segments = transcribe_audio(audio_path, model_path, language)
-        
-        # 繁简转换
-        if language in ("zh", "auto"):
-            for seg in segments:
-                seg.text = convert_to_simplified(seg.text)
+        # 2b: 语音转录（使用 auto 自动检测语言）
+        segments = transcribe_audio(audio_path, model_path, "auto")
         
         # 保存缓存（原始转录结果）
         if use_cache:
@@ -304,7 +309,7 @@ def transcribe_video(
                 "video_path": str(video_path),
                 "video_hash": video_hash,
                 "model": str(model_path),
-                "language": language,
+                "detected_language": "auto",
                 "segments": [seg.to_dict() for seg in segments]
             }
             with open(cache_path, "w", encoding="utf-8") as f:
@@ -312,13 +317,13 @@ def transcribe_video(
             print(f"  💾 转录结果已缓存: {cache_path}")
         
         # 2c: AI 文稿优化 (生成 M1)
-        optimized_text = optimize_transcript(segments, video_path.stem, language)
+        optimized_text = optimize_transcript(segments, video_path.stem, output_language)
         
         # 创建 VideoTranscript (M1)
         transcript = VideoTranscript(
             video_path=video_path,
             title=video_path.stem,
-            language=language,
+            language=output_language,
             segments=segments,
             optimized_text=optimized_text,
         )
@@ -330,7 +335,8 @@ def transcribe_video(
         return transcript
         
     finally:
-        audio_path.unlink(missing_ok=True)
+        # 音频文件保留在 temp/audio/ 目录下，不删除
+        pass
 
 
 def _find_whisper_cli() -> Path:
