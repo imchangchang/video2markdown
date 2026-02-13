@@ -264,10 +264,10 @@ for video_path in "${video_list[@]}"; do
         summary_line=$(grep "📊 AI API 用量汇总" -A3 "$log_file" 2>/dev/null | grep "Token 用量")
         api_calls=$(grep "API 调用" "$log_file" 2>/dev/null | tail -1 | grep -oP '\d+' | head -1)
         
-        # 提取输入/输出/总计 token
-        input_tok=$(echo "$summary_line" | grep -oP '\d+(?=\s*输入)' | sed 's/,//g' | head -1)
-        output_tok=$(echo "$summary_line" | grep -oP '\d+(?=\s*输出)' | sed 's/,//g' | head -1)
-        total_tok=$(echo "$summary_line" | grep -oP '\d+(?=\s*总计)' | sed 's/,//g' | head -1)
+        # 提取输入/输出/总计 token（先移除逗号分隔符）
+        input_tok=$(echo "$summary_line" | sed 's/,//g' | grep -oP '\d+(?=\s*输入)' | head -1)
+        output_tok=$(echo "$summary_line" | sed 's/,//g' | grep -oP '\d+(?=\s*输出)' | head -1)
+        total_tok=$(echo "$summary_line" | sed 's/,//g' | grep -oP '\d+(?=\s*总计)' | head -1)
         
         # 提取费用
         cost_line=$(grep "预估费用" "$log_file" 2>/dev/null | tail -1)
