@@ -27,7 +27,7 @@ def render_markdown(
     document: Document,
     transcript: VideoTranscript,
     descriptions: ImageDescriptions,
-    output_dir: Path,
+    doc_dir: Path,
     temp_dir: Optional[Path] = None,
 ) -> Path:
     """渲染 Markdown 文档.
@@ -36,23 +36,22 @@ def render_markdown(
         document: 文档结构
         transcript: 视频文字稿 (M1)
         descriptions: 配图说明 (M3)
-        output_dir: 输出目录
-        temp_dir: 临时目录（用于存放中间产物）
+        doc_dir: 成果文件夹路径（已包含视频标题）
+        temp_dir: 临时目录（用于存放中间产物，默认在成果文件夹内）
         
     Returns:
         主文档路径
     """
     print(f"[Stage 7] Markdown 渲染")
     
-    # 创建输出目录结构
-    doc_dir = output_dir / document.title
+    # 创建成果文件夹结构
     doc_dir.mkdir(parents=True, exist_ok=True)
     
     # 使用统一的 images/ 目录存放配图，避免特殊字符路径问题
     frames_dir = doc_dir / "images"
     frames_dir.mkdir(exist_ok=True)
     
-    # 临时目录（存放中间产物）
+    # 临时目录（存放中间产物，默认在成果文件夹内）
     if temp_dir is None:
         temp_dir = doc_dir / "temp"
     temp_dir.mkdir(parents=True, exist_ok=True)

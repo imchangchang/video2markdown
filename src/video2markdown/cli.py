@@ -239,11 +239,18 @@ def process(video_path: Path, output: Path, language: str):
     stats.summary.start_time = datetime.now().isoformat()
     
     output_dir = output or settings.output_dir
-    temp_dir = output_dir / "temp"
+    
+    # 成果文件夹和 temp 目录（按照 WORKFLOW 规范：temp 在成果文件夹内）
+    doc_dir = output_dir / video_path.stem
+    temp_dir = doc_dir / "temp"
     
     click.echo(f"处理视频: {video_path.name}")
     click.echo(f"输出目录: {output_dir}")
+    click.echo(f"成果文件夹: {doc_dir}")
     click.echo()
+    
+    # 创建成果文件夹和 temp 目录
+    temp_dir.mkdir(parents=True, exist_ok=True)
     
     # 检查模型
     model_path = settings.resolve_whisper_model_path()
@@ -306,7 +313,7 @@ def process(video_path: Path, output: Path, language: str):
     # Stage 7
     click.echo("=" * 50)
     stats.summary.start_stage("stage7_render")
-    result_path = render_markdown(document, transcript, descriptions, output_dir, temp_dir)
+    result_path = render_markdown(document, transcript, descriptions, doc_dir, temp_dir)
     stats.summary.end_stage("stage7_render")
     stats.summary.completed_stages = 7
     
