@@ -62,7 +62,7 @@ def stage2(video_path: Path, output: Path, language: str):
     
     # 运行
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path)
+    transcript = transcribe_video(video_path, video_info, model_path, temp_dir=temp_dir)
     
     # 保存 M1
     output_dir = output or settings.output_dir
@@ -126,7 +126,7 @@ def stage4(video_path: Path, output: Path, language: str):
         sys.exit(1)
     
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path)
+    transcript = transcribe_video(video_path, video_info, model_path, temp_dir=temp_dir)
     candidates = extract_candidate_frames(video_path, video_info)
     keyframes = filter_keyframes(video_path, candidates, transcript)
     
@@ -167,7 +167,7 @@ def stage5(video_path: Path, output: Path, language: str):
         sys.exit(1)
     
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path)
+    transcript = transcribe_video(video_path, video_info, model_path, temp_dir=temp_dir)
     candidates = extract_candidate_frames(video_path, video_info)
     keyframes = filter_keyframes(video_path, candidates, transcript)
     
@@ -199,7 +199,7 @@ def stage6(video_path: Path, output: Path, language: str):
         sys.exit(1)
     
     video_info = analyze_video(video_path)
-    transcript = transcribe_video(video_path, video_info, model_path)
+    transcript = transcribe_video(video_path, video_info, model_path, temp_dir=temp_dir)
     candidates = extract_candidate_frames(video_path, video_info)
     keyframes = filter_keyframes(video_path, candidates, transcript)
     
@@ -265,7 +265,7 @@ def process(video_path: Path, output: Path, language: str):
     # Stage 2
     click.echo("=" * 50)
     stats.summary.start_stage("stage2_transcribe")
-    transcript = transcribe_video(video_path, video_info, model_path)
+    transcript = transcribe_video(video_path, video_info, model_path, temp_dir=temp_dir)
     stats.summary.end_stage("stage2_transcribe")
     stats.summary.completed_stages = 2
     click.echo()
