@@ -126,17 +126,18 @@ video2markdown/
 编辑 `.env` 文件：
 
 ```bash
-# Kimi API（图像理解和文档生成）
-KIMI_API_KEY=your-key
-KIMI_MODEL=kimi-k2.5
-KIMI_VISION_MODEL=kimi-k2.5
+# LLM API 配置（图像理解和文档生成）
+VIDEO2MD_API_KEY=your-key
+VIDEO2MD_MODEL=kimi-k2.5
+VIDEO2MD_VISION_MODEL=kimi-k2.5
+VIDEO2MD_BASE_URL=https://api.moonshot.cn/v1
 
 # Whisper（语音转文字）
-KIMI_ASR_PROVIDER=local                    # local 或 openai
-KIMI_WHISPER_MODEL=medium-q8_0             # tiny/base/small/medium
+VIDEO2MD_ASR_PROVIDER=local                    # local 或 openai
+VIDEO2MD_WHISPER_MODEL=medium-q8_0             # tiny/base/small/medium
 
 # 处理参数
-KIMI_KEYFRAME_INTERVAL=30                  # 关键帧采样间隔（秒）
+VIDEO2MD_KEYFRAME_INTERVAL=30                  # 关键帧采样间隔（秒）
 ```
 
 ## 输出文件
