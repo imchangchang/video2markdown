@@ -44,13 +44,26 @@ def generate_document(
     """
     print(f"[Stage 6] AI 图文融合生成")
     
-    client = OpenAI(**settings.get_client_kwargs())
+    # Stage 6 使用更长的超时（15分钟），因为长视频的文档生成可能需要较长时间
+    timeout_seconds = 900.0
+    client = OpenAI(**settings.get_client_kwargs(timeout=timeout_seconds))
     doc_title = title or transcript.title
     
     # 准备输入数据
     input_data = _prepare_input(transcript, keyframes, descriptions)
     
+    from video2markdown.progress import HeartbeatMonitor
+    
+    # 日志：请求前信息
+    m1_text_length = len(input_data["m1_text"])
+    images_count = len(input_data["images"])
+    print(f"  📊 请求信息:")
+    print(f"     M1 文稿长度: {m1_text_length:,} 字符")
+    print(f"     配图数量: {images_count} 张")
+    print(f"     API 超时设置: {timeout_seconds}s ({timeout_seconds/60:.1f}分钟)")
+    
     print(f"  调用 AI 融合 M1 + M2 + M3...")
+    print(f"    ⏳ AI 正在生成文档结构，这可能需要 1-5 分钟...")
     
     # 加载 prompt 模板
     prompt_path = settings.prompts_dir / "document_merge.md"
@@ -65,24 +78,42 @@ def generate_document(
     user_content = user_content.replace("{m1_text}", input_data["m1_text"])
     user_content = user_content.replace("{images}", json.dumps(input_data["images"], ensure_ascii=False))
     
+    # 日志：请求体大小
+    request_size = len(system_msg) + len(user_content)
+    print(f"     请求体大小: {request_size:,} 字符 (~{request_size//4:,} tokens 预估)")
+    
     # 调用 AI - 任务是在 M1 的合适位置插入配图
-    response = client.chat.completions.create(
-        model=settings.model,
-        messages=[
-            {
-                "role": "system", 
-                "content": system_msg
-            },
-            {
-                "role": "user",
-                "content": user_content
-            }
-        ],
-        **api_params,
-    )
+    import time
+    start_time = time.time()
+    print(f"     🕐 请求开始: {time.strftime('%H:%M:%S')}")
+    
+    try:
+        with HeartbeatMonitor("AI文档生成", interval=10):
+            response = client.chat.completions.create(
+                model=settings.model,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": system_msg
+                    },
+                    {
+                        "role": "user",
+                        "content": user_content
+                    }
+                ],
+                **api_params,
+            )
+        elapsed = time.time() - start_time
+        print(f"     ✅ 请求成功: {elapsed:.1f}s")
+    except Exception as e:
+        elapsed = time.time() - start_time
+        print(f"     ❌ 请求失败: {elapsed:.1f}s")
+        print(f"     ❌ 错误类型: {type(e).__name__}")
+        print(f"     ❌ 错误信息: {str(e)}")
+        raise
     
     # 显示 Token 用量和价格
-    _print_usage_info(response)
+    _print_usage_info(response, stage="stage6_generate")
     
     # 解析响应
     content = response.choices[0].message.content
@@ -112,7 +143,7 @@ def generate_document(
     )
 
 
-def _print_usage_info(response) -> None:
+def _print_usage_info(response, stage: str = "") -> None:
     """打印 API 用量和价格信息，并更新全局统计."""
     if not hasattr(response, 'usage') or response.usage is None:
         return
@@ -127,7 +158,7 @@ def _print_usage_info(response) -> None:
     
     # 更新全局统计
     from video2markdown.stats import get_stats
-    get_stats().add(prompt_tokens, completion_tokens)
+    get_stats().add(prompt_tokens, completion_tokens, stage=stage)
     
     # 从配置获取价格
     input_cost = (prompt_tokens / 1_000_000) * settings.llm_price_input_per_1m

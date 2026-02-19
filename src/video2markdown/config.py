@@ -86,11 +86,18 @@ class Settings(BaseSettings):
             if old_model := os.environ.get("KIMI_MODEL"):
                 self.model = old_model
 
-    def get_client_kwargs(self) -> dict:
-        """获取 OpenAI 客户端参数."""
+    def get_client_kwargs(self, timeout: float = 600.0) -> dict:
+        """获取 OpenAI 客户端参数.
+        
+        Args:
+            timeout: 请求超时时间（秒），默认 600 秒（10分钟）
+                  长视频的 Stage 6 可能需要 5-8 分钟
+        """
         return {
             "api_key": self.api_key,
             "base_url": self.base_url,
+            "timeout": timeout,
+            "max_retries": 2,
         }
 
     def resolve_whisper_cli(self) -> Optional[Path]:
