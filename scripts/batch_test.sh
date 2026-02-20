@@ -91,16 +91,23 @@ if [ ! -d "$VIDEO_DIR" ]; then
     exit 1
 fi
 
-# 获取视频列表
+# 获取媒体文件列表（支持视频和音频格式）
 video_list=()
-for video in "$VIDEO_DIR"/*.mp4; do
-    [ -f "$video" ] && video_list+=("$video")
+for ext in mp4 wav mp3 m4a mov avi mkv flv wma aac ogg flac; do
+    for video in "$VIDEO_DIR"/*.$ext; do
+        [ -f "$video" ] && video_list+=("$video")
+    done
 done
+
+# 去重（避免同一文件匹配多个扩展名）
+IFS=$'\n' sorted=($(sort -u <<<"${video_list[*]}"))
+unset IFS
+video_list=("${sorted[@]}")
 
 total=${#video_list[@]}
 
 if [ $total -eq 0 ]; then
-    echo -e "${RED}错误: 未在 $VIDEO_DIR 找到视频文件${NC}"
+    echo -e "${RED}错误: 未在 $VIDEO_DIR 找到媒体文件（支持: mp4, wav, mp3, m4a, mov, avi, mkv, flv, wma, aac, ogg, flac）${NC}"
     exit 1
 fi
 
@@ -241,65 +248,113 @@ cat >> "$SUMMARY_FILE" << EOF
 \`\`\`
 $OUTPUT_DIR/<视频名>/processing.log
 \`\`\`
-
-## AI API 用量汇总
-
-| 视频 | API调用 | Token用量(输入/输出/总计) | 费用 |
-|-----|--------|------------------------|-----|
 EOF
 
-# 初始化汇总变量
-total_api_calls=0
-total_input_tokens=0
-total_output_tokens=0
-
-# 从每个视频的 ai_tokens.json 中读取统计信息
-for video_path in "${video_list[@]}"; do
-    video_name=$(basename "$video_path")
-    video_stem="${video_name%.*}"
-    tokens_file="$OUTPUT_DIR/$video_stem/temp/ai_tokens.json"
-    
-    if [ -f "$tokens_file" ] && command -v python3 &> /dev/null; then
-        # 从 JSON 提取数据
-        api_calls=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['api_calls'])")
-        input_tok=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['prompt_tokens'])")
-        output_tok=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['completion_tokens'])")
-        total_tok=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['total_tokens'])")
-        cost=$(python3 -c "import json; data=json.load(open('$tokens_file')); print(data['total']['total_cost'])")
-        
-        # 累加到总计
-        [ -n "$api_calls" ] && total_api_calls=$((total_api_calls + api_calls))
-        [ -n "$input_tok" ] && total_input_tokens=$((total_input_tokens + input_tok))
-        [ -n "$output_tok" ] && total_output_tokens=$((total_output_tokens + output_tok))
-        
-        # 格式化显示
-        [ -z "$api_calls" ] && api_calls="0"
-        [ -z "$input_tok" ] && input_tok="0"
-        [ -z "$output_tok" ] && output_tok="0"
-        [ -z "$total_tok" ] && total_tok="0"
-        [ -z "$cost" ] && cost="N/A"
-        
-        echo "| $video_stem | $api_calls | $input_tok / $output_tok / $total_tok | ¥$cost |" >> "$SUMMARY_FILE"
-    else
-        echo "| $video_stem | - | - | - |" >> "$SUMMARY_FILE"
-    fi
-done
-
-# 计算总费用
-total_tokens=$((total_input_tokens + total_output_tokens))
+# 使用 Python 生成 API 用量汇总（包括按阶段统计）
 if command -v python3 &> /dev/null; then
-    total_cost=$(python3 -c "print(f'{( $total_input_tokens * $PRICE_INPUT_PER_1M / 1000000 + $total_output_tokens * $PRICE_OUTPUT_PER_1M / 1000000 ):.4f}')")
+    python3 << PYEOF
+import json
+from pathlib import Path
+from collections import defaultdict
+
+output_dir = Path("$OUTPUT_DIR")
+price_input = float("$PRICE_INPUT_PER_1M")
+price_output = float("$PRICE_OUTPUT_PER_1M")
+
+# 阶段名称映射
+stage_names = {
+    'stage2_transcribe': 'Stage 2: 转录优化',
+    'stage5_analyze_images': 'Stage 5: 图像分析', 
+    'stage6_generate': 'Stage 6: 文档生成',
+    'unknown': '未知阶段'
+}
+
+# 收集统计
+video_stats = []
+stage_stats = defaultdict(lambda: {'calls': 0, 'input': 0, 'output': 0})
+total_api_calls = 0
+total_input = 0
+total_output = 0
+
+for video_dir in sorted(output_dir.iterdir()):
+    if video_dir.is_dir():
+        tokens_file = video_dir / 'temp' / 'ai_tokens.json'
+        if tokens_file.exists():
+            try:
+                data = json.load(open(tokens_file))
+                total = data.get('total', {})
+                
+                api_calls = total.get('api_calls', 0)
+                input_tok = total.get('prompt_tokens', 0)
+                output_tok = total.get('completion_tokens', 0)
+                total_tok = total.get('total_tokens', 0)
+                cost = total.get('total_cost', 0)
+                
+                video_stats.append({
+                    'name': video_dir.name,
+                    'calls': api_calls,
+                    'input': input_tok,
+                    'output': output_tok,
+                    'total': total_tok,
+                    'cost': cost
+                })
+                
+                total_api_calls += api_calls
+                total_input += input_tok
+                total_output += output_tok
+                
+                # 按阶段汇总
+                for r in data.get('records', []):
+                    stage = r.get('stage', 'unknown')
+                    stage_stats[stage]['calls'] += 1
+                    stage_stats[stage]['input'] += r.get('prompt_tokens', 0)
+                    stage_stats[stage]['output'] += r.get('completion_tokens', 0)
+                    
+            except Exception as e:
+                print(f"Warning: Failed to parse {tokens_file}: {e}")
+
+# 写入汇总报告
+with open("$SUMMARY_FILE", "a") as f:
+    # 按视频汇总
+    f.write("\n## AI API 用量汇总（按视频）\n\n")
+    f.write("| 视频 | API调用 | Token用量(输入/输出/总计) | 费用 |\n")
+    f.write("|-----|--------|------------------------|-----|\n")
+    
+    for v in video_stats:
+        f.write(f"| {v['name']} | {v['calls']} | {v['input']:,} / {v['output']:,} / {v['total']:,} | ¥{v['cost']:.4f} |\n")
+    
+    total_cost = (total_input * price_input / 1_000_000) + (total_output * price_output / 1_000_000)
+    f.write(f"| **总计** | **{total_api_calls}** | **{total_input:,} / {total_output:,} / {total_input+total_output:,}** | **¥{total_cost:.4f}** |\n")
+    
+    # 按阶段汇总
+    f.write("\n## AI API 用量汇总（按阶段）\n\n")
+    f.write("| 阶段 | API调用 | 输入Tokens | 输出Tokens | 总Tokens | 费用 |\n")
+    f.write("|-----|--------|-----------|-----------|---------|-----|\n")
+    
+    for stage, stats in sorted(stage_stats.items()):
+        name = stage_names.get(stage, stage)
+        calls = stats['calls']
+        inp = stats['input']
+        out = stats['output']
+        total_tok = inp + out
+        cost = (inp * price_input / 1_000_000) + (out * price_output / 1_000_000)
+        f.write(f"| {name} | {calls} | {inp:,} | {out:,} | {total_tok:,} | ¥{cost:.4f} |\n")
+    
+    if stage_stats:
+        f.write(f"| **总计** | **{total_api_calls}** | **{total_input:,}** | **{total_output:,}** | **{total_input+total_output:,}** | **¥{total_cost:.4f}** |\n")
+    
+    f.write(f"\n> 价格标准（从 .env 读取）\n")
+    f.write(f"> - 输入: ¥{price_input} / 百万 tokens\n")
+    f.write(f"> - 输出: ¥{price_output} / 百万 tokens\n")
+
+print(f"API usage summary generated")
+PYEOF
 else
-    total_cost="N/A"
+    echo "Python3 not available, skipping API usage summary"
 fi
 
-echo "| **总计** | **$total_api_calls** | **$total_input_tokens / $total_output_tokens / $total_tokens** | **¥$total_cost** |" >> "$SUMMARY_FILE"
-
+# 添加生成文件说明
 cat >> "$SUMMARY_FILE" << EOF
-
-> 价格标准（从 .env 读取，配置项：LLM_PRICE_INPUT_PER_1M / LLM_PRICE_OUTPUT_PER_1M）
-> - 输入: ¥$PRICE_INPUT_PER_1M / 百万 tokens
-> - 输出: ¥$PRICE_OUTPUT_PER_1M / 百万 tokens
 
 ## 生成文件
 

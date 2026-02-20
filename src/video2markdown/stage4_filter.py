@@ -43,6 +43,11 @@ def filter_keyframes(
     """
     print(f"[Stage 4] 智能图片筛选: {len(candidates.frames)} 个候选帧")
     
+    # 空候选场景：直接返回
+    if not candidates.frames:
+        print(f"  ⏭️  无候选帧，跳过筛选")
+        return KeyFrames(video_path=video_path, frames=[])
+    
     filtered = []
     
     for i, frame in enumerate(candidates.frames):

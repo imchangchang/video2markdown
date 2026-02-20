@@ -39,6 +39,11 @@ def extract_candidate_frames(
     """
     print(f"[Stage 3] 提取候选关键帧: {video_path.name}")
     
+    # 纯音频场景：直接返回空列表
+    if video_info.video_codec == "audio_only":
+        print(f"  ⏭️  纯音频文件，跳过关键帧提取")
+        return KeyFrames(video_path=video_path, frames=[])
+    
     frames = []
     
     # 1. 从稳定区间采样

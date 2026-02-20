@@ -39,65 +39,97 @@ def analyze_video(video_path: Path) -> VideoInfo:
     print(f"[Stage 1] 分析视频: {video_path.name}")
     
     # 使用 ffprobe 获取视频元数据
-    info = _get_video_metadata(video_path)
+    info, is_audio_only = _get_video_metadata(video_path)
     
-    # 检测场景变化和不稳定区间
-    print(f"  检测场景变化和稳定区间...")
-    scene_changes, stable_intervals, unstable_intervals = _analyze_video_stability(
-        video_path, info.duration
-    )
-    
-    info.scene_changes = scene_changes
-    info.stable_intervals = stable_intervals
-    info.unstable_intervals = unstable_intervals
-    
-    print(f"  ✓ 时长: {info.duration:.1f}s, 分辨率: {info.width}x{info.height}")
-    print(f"  ✓ 检测到 {len(scene_changes)} 个场景变化点")
-    print(f"  ✓ 稳定区间: {len(stable_intervals)} 段 (总 {_total_duration(stable_intervals):.1f}s)")
-    print(f"  ✓ 不稳定区间: {len(unstable_intervals)} 段 (总 {_total_duration(unstable_intervals):.1f}s)")
+    if is_audio_only:
+        # 纯音频场景：跳过场景检测，整个音频作为一个稳定区间
+        print(f"  检测到纯音频文件，跳过视频分析...")
+        info.scene_changes = []
+        info.stable_intervals = [(0, info.duration)] if info.duration > 0 else []
+        info.unstable_intervals = []
+        
+        print(f"  ✓ 时长: {info.duration:.1f}s")
+        print(f"  ✓ 纯音频模式：整个音频作为一个处理区间")
+    else:
+        # 检测场景变化和不稳定区间
+        print(f"  检测场景变化和稳定区间...")
+        scene_changes, stable_intervals, unstable_intervals = _analyze_video_stability(
+            video_path, info.duration
+        )
+        
+        info.scene_changes = scene_changes
+        info.stable_intervals = stable_intervals
+        info.unstable_intervals = unstable_intervals
+        
+        print(f"  ✓ 时长: {info.duration:.1f}s, 分辨率: {info.width}x{info.height}")
+        print(f"  ✓ 检测到 {len(scene_changes)} 个场景变化点")
+        print(f"  ✓ 稳定区间: {len(stable_intervals)} 段 (总 {_total_duration(stable_intervals):.1f}s)")
+        print(f"  ✓ 不稳定区间: {len(unstable_intervals)} 段 (总 {_total_duration(unstable_intervals):.1f}s)")
     
     return info
 
 
-def _get_video_metadata(video_path: Path) -> VideoInfo:
-    """使用 ffprobe 获取视频元数据."""
-    cmd = [
+def _get_video_metadata(video_path: Path) -> tuple[VideoInfo, bool]:
+    """使用 ffprobe 获取视频/音频元数据."""
+    # 首先获取格式信息（时长等）
+    cmd_format = [
         "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,r_frame_rate",
         "-show_entries", "format=duration",
         "-of", "json",
         str(video_path)
     ]
     
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result_format = subprocess.run(cmd_format, capture_output=True, text=True, check=True)
     import json
-    data = json.loads(result.stdout)
+    data_format = json.loads(result_format.stdout)
+    format_info = data_format.get("format", {})
+    duration = float(format_info.get("duration", 0))
     
-    # 解析视频流信息
-    stream = data.get("streams", [{}])[0]
-    format_info = data.get("format", {})
+    # 尝试获取视频流信息
+    cmd_video = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height,r_frame_rate",
+        "-of", "json",
+        str(video_path)
+    ]
     
-    # 解析帧率 (如 "30/1" -> 30.0)
-    fps_str = stream.get("r_frame_rate", "30/1")
-    if "/" in fps_str:
-        num, den = fps_str.split("/")
-        fps = float(num) / float(den)
-    else:
-        fps = float(fps_str)
+    result_video = subprocess.run(cmd_video, capture_output=True, text=True)
+    
+    # 默认值为纯音频场景
+    width, height, fps = 0, 0, 0.0
+    is_audio_only = True
+    
+    if result_video.returncode == 0:
+        data_video = json.loads(result_video.stdout)
+        streams = data_video.get("streams", [])
+        if streams:  # 有视频流
+            stream = streams[0]
+            width = stream.get("width", 0)
+            height = stream.get("height", 0)
+            
+            # 解析帧率
+            fps_str = stream.get("r_frame_rate", "30/1")
+            if "/" in fps_str:
+                num, den = fps_str.split("/")
+                fps = float(num) / float(den) if float(den) != 0 else 0.0
+            else:
+                fps = float(fps_str)
+            
+            is_audio_only = False
     
     return VideoInfo(
         path=video_path,
-        duration=float(format_info.get("duration", 0)),
-        width=stream.get("width", 0),
-        height=stream.get("height", 0),
+        duration=duration,
+        width=width,
+        height=height,
         fps=fps,
         audio_codec="unknown",
-        video_codec="unknown",
+        video_codec="unknown" if not is_audio_only else "audio_only",
         scene_changes=[],
         stable_intervals=[],
         unstable_intervals=[]
-    )
+    ), is_audio_only
 
 
 def _analyze_video_stability(
@@ -122,6 +154,8 @@ def _analyze_video_stability(
     Returns:
         (scene_changes, stable_intervals, unstable_intervals)
     """
+    from video2markdown.progress import HeartbeatMonitor
+    
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"无法打开视频: {video_path}")
@@ -136,9 +170,12 @@ def _analyze_video_stability(
     # 第二步：精确化每个变化点的边界
     print(f"    第二步: 精确化 {len(rough_changes)} 个变化点边界...")
     precise_intervals = []
-    for change_ts in rough_changes:
-        start, end = _precise_change_boundary(cap, fps, change_ts, stability_threshold)
-        precise_intervals.append((start, end))
+    with HeartbeatMonitor("精确化边界", interval=5):
+        for i, change_ts in enumerate(rough_changes):
+            start, end = _precise_change_boundary(cap, fps, change_ts, stability_threshold)
+            precise_intervals.append((start, end))
+            if (i + 1) % 5 == 0 or i == len(rough_changes) - 1:
+                print(f"      已处理 {i+1}/{len(rough_changes)} 个变化点")
     
     cap.release()
     

@@ -45,6 +45,11 @@ def analyze_images(
     """
     print(f"[Stage 5] AI 图像分析: {len(keyframes.frames)} 张图片")
     
+    # 空关键帧场景：直接返回
+    if not keyframes.frames:
+        print(f"  ⏭️  无关键帧，跳过图像分析")
+        return ImageDescriptions(descriptions=[])
+    
     client = OpenAI(**settings.get_client_kwargs())
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -71,8 +76,11 @@ def analyze_images(
         })
     print(f"    ✓ 提取完成")
     
+    from video2markdown.progress import HeartbeatMonitor
+    
     # 阶段2: 并发分析图片
     print(f"  [阶段2/2] 并发分析图片...")
+    print(f"    ⏳ AI 正在分析 {len(frame_tasks)} 张图片，每张约需 5-15 秒...")
     descriptions = [None] * len(frame_tasks)  # 预分配列表，保持顺序
     stats_lock = threading.Lock()
     
@@ -89,6 +97,10 @@ def analyze_images(
             task['context'],
         )
         return idx - 1, desc  # 转换为 0-based 索引
+    
+    # 启动心跳监控，显示分析仍在进行
+    heartbeat = HeartbeatMonitor(f"AI分析{len(frame_tasks)}张图片", interval=15)
+    heartbeat.start()
     
     with ThreadPoolExecutor(max_workers=image_concurrency) as executor:
         # 提交所有任务
@@ -121,6 +133,7 @@ def analyze_images(
                     related_transcript=task['context'],
                 )
     
+    heartbeat.stop()
     print(f"  ✓ 完成 {len([d for d in descriptions if d is not None])} 张图片分析")
     return ImageDescriptions(descriptions=descriptions)
 
@@ -227,7 +240,7 @@ def _analyze_single_image(
     content = response.choices[0].message.content
     
     # 打印 Token 用量并更新全局统计
-    _print_usage_info(response)
+    _print_usage_info(response, stage="stage5_analyze_images")
     
     # 解析响应 (简单处理)
     description = content.strip()
@@ -245,7 +258,7 @@ def _analyze_single_image(
     )
 
 
-def _print_usage_info(response) -> None:
+def _print_usage_info(response, stage: str = "") -> None:
     """打印 API 用量和价格信息，并更新全局统计."""
     if not hasattr(response, 'usage') or response.usage is None:
         return
@@ -259,7 +272,7 @@ def _print_usage_info(response) -> None:
         return
     
     # 更新全局统计（线程安全）
-    get_stats().add(prompt_tokens, completion_tokens)
+    get_stats().add(prompt_tokens, completion_tokens, stage=stage)
     
     # 从配置获取价格
     input_cost = (prompt_tokens / 1_000_000) * settings.llm_price_input_per_1m

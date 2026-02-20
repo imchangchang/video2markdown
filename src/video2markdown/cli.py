@@ -238,15 +238,13 @@ def process(video_path: Path, output: Path, language: str):
     stats.summary.video_name = video_path.name
     stats.summary.start_time = datetime.now().isoformat()
     
-    output_dir = output or settings.output_dir
-    
     # 成果文件夹和 temp 目录（按照 WORKFLOW 规范：temp 在成果文件夹内）
-    doc_dir = output_dir / video_path.stem
+    # 输出目录由调用方决定，不再自动创建视频名子目录
+    doc_dir = output or settings.output_dir
     temp_dir = doc_dir / "temp"
     
     click.echo(f"处理视频: {video_path.name}")
-    click.echo(f"输出目录: {output_dir}")
-    click.echo(f"成果文件夹: {doc_dir}")
+    click.echo(f"输出目录: {doc_dir}")
     click.echo()
     
     # 创建成果文件夹和 temp 目录
@@ -341,7 +339,7 @@ def process(video_path: Path, output: Path, language: str):
     
     click.echo()
     click.echo("✅ 处理完成!")
-    click.echo(f"输出: {result_path.parent}")
+    click.echo(f"输出: {doc_dir}")
 
 
 if __name__ == "__main__":

@@ -46,6 +46,8 @@ def transcribe_audio(
     language: str = "auto"
 ) -> list[TranscriptSegment]:
     """Stage 2b: 使用 whisper.cpp 转录音频."""
+    from video2markdown.progress import HeartbeatMonitor
+    
     print(f"  [2b] 语音转录 (使用 {model_path.name})...")
     
     whisper_cli = _find_whisper_cli()
@@ -63,7 +65,11 @@ def transcribe_audio(
     ]
     
     print(f"    运行: whisper-cli -m {model_path.name} ...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"    ⏳ Whisper 转录中，这可能需要几分钟...")
+    
+    # 使用心跳监控长时间运行的 whisper 进程
+    with HeartbeatMonitor("Whisper转录", interval=10):
+        result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
         print(f"  错误: {result.stderr}")
@@ -118,7 +124,7 @@ def load_prompt(template_path: Path, **kwargs) -> str:
     return content.format(**kwargs)
 
 
-def _print_usage_info(response) -> None:
+def _print_usage_info(response, stage: str = "") -> None:
     """打印 API 用量和价格信息，并更新全局统计."""
     if not hasattr(response, 'usage') or response.usage is None:
         return
@@ -133,7 +139,7 @@ def _print_usage_info(response) -> None:
     
     # 更新全局统计
     from video2markdown.stats import get_stats
-    get_stats().add(prompt_tokens, completion_tokens)
+    get_stats().add(prompt_tokens, completion_tokens, stage=stage)
     
     # 从配置获取价格
     input_cost = (prompt_tokens / 1_000_000) * settings.llm_price_input_per_1m
@@ -206,7 +212,7 @@ def optimize_transcript(
     )
     
     # 打印 Token 用量
-    _print_usage_info(response)
+    _print_usage_info(response, stage="stage2_transcribe")
     
     optimized = response.choices[0].message.content.strip()
     
